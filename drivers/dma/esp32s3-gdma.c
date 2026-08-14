@@ -40,6 +40,7 @@
 #define ESP32S3_GDMA_PERI_SEL_MASK	GENMASK(5, 0)
 
 #define ESP32S3_GDMA_LINK_ADDR		GENMASK(19, 0)
+#define ESP32S3_GDMA_RX_LINK_AUTO_RET	BIT(20)
 #define ESP32S3_GDMA_RX_LINK_STOP	BIT(21)
 #define ESP32S3_GDMA_RX_LINK_START	BIT(22)
 #define ESP32S3_GDMA_TX_LINK_STOP	BIT(20)
@@ -283,7 +284,7 @@ static void esp32s3_gdma_start(struct esp32s3_gdma_chan *chan)
 	dma_wmb();
 	link = FIELD_PREP(ESP32S3_GDMA_LINK_ADDR, chan->active->hw_dma);
 	link |= chan->tx ? ESP32S3_GDMA_TX_LINK_START :
-		ESP32S3_GDMA_RX_LINK_START;
+		ESP32S3_GDMA_RX_LINK_AUTO_RET | ESP32S3_GDMA_RX_LINK_START;
 	writel(link, base + ESP32S3_GDMA_LINK);
 }
 
