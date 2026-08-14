@@ -30,6 +30,18 @@
 		reg = <0x3c300000 0x004f0000>;
 	};
 
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		gdma_pool: dma-pool@3fc88000 {
+			compatible = "shared-dma-pool";
+			reg = <0x3fc88000 0x8000>;
+			no-map;
+		};
+	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -76,6 +88,30 @@
 			     &spi3_q_pin &spi3_wp_pin &spi3_hd_pin>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+	};
+
+	gdma: dma-controller@6003f000 {
+		compatible = "esp,esp32s3-gdma";
+		reg = <0x6003f000 0x1000>;
+		clocks = <&syscon ESP32S3_CLK_GDMA>;
+		resets = <&syscon ESP32S3_RST_GDMA>;
+		interrupt-parent = <&intc>;
+		interrupts = <65 IRQ_TYPE_LEVEL_HIGH>,
+			     <66 IRQ_TYPE_LEVEL_HIGH>,
+			     <67 IRQ_TYPE_LEVEL_HIGH>,
+			     <68 IRQ_TYPE_LEVEL_HIGH>,
+			     <69 IRQ_TYPE_LEVEL_HIGH>,
+			     <70 IRQ_TYPE_LEVEL_HIGH>,
+			     <71 IRQ_TYPE_LEVEL_HIGH>,
+			     <72 IRQ_TYPE_LEVEL_HIGH>,
+			     <73 IRQ_TYPE_LEVEL_HIGH>,
+			     <74 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "rx0", "rx1", "rx2", "rx3", "rx4",
+				  "tx0", "tx1", "tx2", "tx3", "tx4";
+		memory-region = <&gdma_pool>;
+		dma-channels = <10>;
+		dma-requests = <10>;
+		#dma-cells = <2>;
 	};
 
 	i2c0: i2c@60013000 {
