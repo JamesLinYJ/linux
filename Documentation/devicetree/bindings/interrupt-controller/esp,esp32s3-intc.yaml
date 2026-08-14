@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/interrupt-controller/esp,esp32s3-intc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Espressif ESP32-S3 peripheral interrupt matrix
+
+maintainers:
+  - Max Filippov <jcmvbkbc@gmail.com>
+
+description: |
+  The ESP32-S3 interrupt matrix routes 99 peripheral interrupt sources to
+  the fixed interrupt inputs of either Xtensa CPU. The initial binding uses
+  one level-triggered CPU0 interrupt as a chained parent. Each child specifier
+  contains the peripheral source number followed by standard trigger flags.
+
+allOf:
+  - $ref: /schemas/interrupt-controller.yaml#
+
+properties:
+  compatible:
+    const: esp,esp32s3-intc
+
+  reg:
+    maxItems: 1
+
+  interrupts:
+    description: CPU0 interrupt 2, a level-1 external Xtensa interrupt
+    maxItems: 1
+
+  interrupt-controller: true
+
+  '#interrupt-cells':
+    const: 2
+
+required:
+  - compatible
+  - reg
+  - interrupts
+  - interrupt-controller
+  - '#interrupt-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
+    interrupt-controller@600c2000 {
+        compatible = "esp,esp32s3-intc";
+        reg = <0x600c2000 0x1000>;
+        interrupt-parent = <&pic>;
+        interrupts = <2 0>;
+        interrupt-controller;
