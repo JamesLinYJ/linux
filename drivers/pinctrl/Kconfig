@@ -84,6 +84,21 @@ config PINCTRL_APPLE_GPIO
 	  This driver can also be built as a module. If so, the module
 	  will be called pinctrl-apple-gpio.
 
+config PINCTRL_ESP32S3
+	bool "Espressif ESP32-S3 GPIO and pin controller"
+	depends on XTENSA_PLATFORM_ESP32S3 || COMPILE_TEST
+	depends on OF
+	select GPIOLIB
+	select GPIOLIB_IRQCHIP
+	select PINMUX
+	select GENERIC_PINCONF
+	select GENERIC_PINCTRL_GROUPS
+	select GENERIC_PINMUX_FUNCTIONS
+	help
+	  Enable the GPIO, pin configuration, and GPIO interrupt controller
+	  found in the Espressif ESP32-S3. Peripheral signal routing through
+	  the GPIO matrix is added by the corresponding pinmux functions.
+
 config PINCTRL_ARTPEC6
 	bool "Axis ARTPEC-6 pin controller driver"
 	depends on MACH_ARTPEC6

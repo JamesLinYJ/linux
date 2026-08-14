@@ -61,6 +61,20 @@
 		interrupts = <96 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
+	pinctrl: pinctrl@60004000 {
+		compatible = "esp,esp32s3-pinctrl";
+		reg = <0x60004000 0x700>, <0x60009000 0x100>;
+		reg-names = "gpio", "iomux";
+		interrupt-parent = <&intc>;
+		interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-ranges = <&pinctrl 0 0 49>;
+		gpio-reserved-ranges = <19 2>, <22 16>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+	};
+
 	pic: interrupt-controller {
 		compatible = "cdns,xtensa-pic";
 		#address-cells = <0>;
