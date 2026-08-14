@@ -43,6 +43,20 @@
 			#clock-cells = <0>;
 			clock-frequency = <240000000>;
 		};
+
+		xtal: xtal-clock {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <40000000>;
+		};
+	};
+
+	syscon: clock-controller@600c0000 {
+		compatible = "esp,esp32s3-system-controller";
+		reg = <0x600c0000 0x1000>;
+		clocks = <&xtal>;
+		#clock-cells = <1>;
+		#reset-cells = <1>;
 	};
 
 	intc: interrupt-controller@600c2000 {
