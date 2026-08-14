@@ -2,6 +2,8 @@
 /dts-v1/;
 
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/clock/esp32s3.h>
+#include <dt-bindings/reset/esp32s3.h>
 
 / {
 	model = "Waveshare ESP32-S3-Touch-LCD-3.49 V2";
@@ -12,6 +14,8 @@
 	interrupt-parent = <&pic>;
 
 	aliases {
+		i2c0 = &i2c0;
+		i2c1 = &i2c1;
 		serial0 = &usb_serial_jtag;
 	};
 
@@ -59,6 +63,34 @@
 		#reset-cells = <1>;
 	};
 
+	i2c0: i2c@60013000 {
+		compatible = "esp,esp32s3-i2c";
+		reg = <0x60013000 0x1000>;
+		clocks = <&syscon ESP32S3_CLK_I2C0>;
+		resets = <&syscon ESP32S3_RST_I2C0>;
+		interrupt-parent = <&intc>;
+		interrupts = <42 IRQ_TYPE_LEVEL_HIGH>;
+		clock-frequency = <400000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c0_scl_pins &i2c0_sda_pins>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
+	i2c1: i2c@60027000 {
+		compatible = "esp,esp32s3-i2c";
+		reg = <0x60027000 0x1000>;
+		clocks = <&syscon ESP32S3_CLK_I2C1>;
+		resets = <&syscon ESP32S3_RST_I2C1>;
+		interrupt-parent = <&intc>;
+		interrupts = <43 IRQ_TYPE_LEVEL_HIGH>;
+		clock-frequency = <400000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2c1_scl_pins &i2c1_sda_pins>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+	};
+
 	intc: interrupt-controller@600c2000 {
 		compatible = "esp,esp32s3-intc";
 		reg = <0x600c2000 0x1000>;
@@ -87,6 +119,38 @@
 		gpio-reserved-ranges = <19 2>, <22 16>;
 		interrupt-controller;
 		#interrupt-cells = <2>;
+
+		i2c0_scl_pins: i2c0-scl-pins {
+			pins = "gpio48";
+			function = "i2c0-scl";
+			bias-pull-up;
+			drive-open-drain;
+			input-enable;
+		};
+
+		i2c0_sda_pins: i2c0-sda-pins {
+			pins = "gpio47";
+			function = "i2c0-sda";
+			bias-pull-up;
+			drive-open-drain;
+			input-enable;
+		};
+
+		i2c1_scl_pins: i2c1-scl-pins {
+			pins = "gpio18";
+			function = "i2c1-scl";
+			bias-pull-up;
+			drive-open-drain;
+			input-enable;
+		};
+
+		i2c1_sda_pins: i2c1-sda-pins {
+			pins = "gpio17";
+			function = "i2c1-sda";
+			bias-pull-up;
+			drive-open-drain;
+			input-enable;
+		};
 	};
 
 	pic: interrupt-controller {
