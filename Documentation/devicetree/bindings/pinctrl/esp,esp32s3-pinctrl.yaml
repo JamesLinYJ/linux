@@ -74,6 +74,10 @@ patternProperties:
           - ledc-ls5
           - ledc-ls6
           - ledc-ls7
+          - spi2-clk
+          - spi2-cs0
+          - spi2-d
+          - spi2-q
           - spi3-clk
           - spi3-cs0
           - spi3-d
