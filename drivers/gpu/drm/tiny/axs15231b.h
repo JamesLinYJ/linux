@@ -156,8 +156,9 @@ static inline void axs15231b_cmd_header(u8 *buf, u8 opcode, u8 cmd)
 }
 
 /*
- * Size in bytes of a pixel rectangle; rejects dimensions that exceed the
- * panel or overflow the multiplication.
+ * Size in bytes of a DRM-style pixel rectangle. The lower-right coordinates
+ * are exclusive, matching struct drm_rect and the official panel component.
+ * Reject dimensions that exceed the panel or overflow the multiplication.
  */
 static inline int axs15231b_rect_bytes(u16 x1, u16 y1, u16 x2, u16 y2,
 				       size_t *bytes)
@@ -165,12 +166,12 @@ static inline int axs15231b_rect_bytes(u16 x1, u16 y1, u16 x2, u16 y2,
 	size_t width, height, total, byte_count;
 	int ret;
 
-	if (x1 > x2 || y1 > y2 || x2 >= AXS15231B_WIDTH ||
-	    y2 >= AXS15231B_HEIGHT)
+	if (x1 >= x2 || y1 >= y2 || x2 > AXS15231B_WIDTH ||
+	    y2 > AXS15231B_HEIGHT)
 		return -EINVAL;
 
-	width = (size_t)x2 - x1 + 1;
-	height = (size_t)y2 - y1 + 1;
+	width = (size_t)x2 - x1;
+	height = (size_t)y2 - y1;
 	if (check_mul_overflow(width, height, &total))
 		return -EOVERFLOW;
 

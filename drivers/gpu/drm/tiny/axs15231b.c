@@ -32,6 +32,7 @@
 #include <drm/drm_drv.h>
 #include <drm/drm_fb_dma_helper.h>
 #include <drm/drm_fbdev_dma.h>
+#include <drm/drm_fourcc.h>
 #include <drm/drm_gem_atomic_helper.h>
 #include <drm/drm_gem_dma_helper.h>
 #include <drm/drm_gem_framebuffer_helper.h>
@@ -100,11 +101,11 @@ static int axs15231b_panel_init(struct axs15231b *panel)
 	 * assert 10 ms, deassert and wait 120 ms. gpiod value semantics
 	 * already account for the active-low reset line.
 	 */
-	gpiod_set_value_cansleep(panel->reset_gpio, 1);
-	usleep_range(10000, 15000);
 	gpiod_set_value_cansleep(panel->reset_gpio, 0);
 	usleep_range(10000, 15000);
 	gpiod_set_value_cansleep(panel->reset_gpio, 1);
+	usleep_range(10000, 15000);
+	gpiod_set_value_cansleep(panel->reset_gpio, 0);
 	msleep(120);
 
 	ret = axs15231b_write_cmd(panel, AXS15231B_CMD_SLPOUT, NULL, 0);
@@ -157,8 +158,8 @@ static int axs15231b_write_rect(struct axs15231b *panel,
 				u16 x1, u16 y1, u16 x2, u16 y2)
 {
 	size_t pitch = AXS15231B_WIDTH * AXS15231B_BYTES_PER_PIXEL;
-	size_t row_bytes = (size_t)(x2 - x1 + 1) * AXS15231B_BYTES_PER_PIXEL;
-	unsigned int rows = y2 - y1 + 1;
+	size_t row_bytes;
+	unsigned int rows;
 	unsigned int row;
 	const u8 *pixels;
 	int ret;
@@ -168,11 +169,16 @@ static int axs15231b_write_rect(struct axs15231b *panel,
 	pixels = map->vaddr;
 	if (!pixels)
 		return -EINVAL;
-
-	ret = axs15231b_write_window(panel, AXS15231B_CMD_CASET, x1, x2);
+	ret = axs15231b_rect_bytes(x1, y1, x2, y2, NULL);
 	if (ret)
 		return ret;
-	ret = axs15231b_write_window(panel, AXS15231B_CMD_RASET, y1, y2);
+	row_bytes = (size_t)(x2 - x1) * AXS15231B_BYTES_PER_PIXEL;
+	rows = y2 - y1;
+
+	ret = axs15231b_write_window(panel, AXS15231B_CMD_CASET, x1, x2 - 1);
+	if (ret)
+		return ret;
+	ret = axs15231b_write_window(panel, AXS15231B_CMD_RASET, y1, y2 - 1);
 	if (ret)
 		return ret;
 
@@ -302,7 +308,7 @@ static const struct drm_mode_config_funcs axs15231b_mode_config_funcs = {
 };
 
 static const u32 axs15231b_formats[] = {
-	DRM_FORMAT_RGB565,
+	DRM_FORMAT_RGB565 | DRM_FORMAT_BIG_ENDIAN,
 };
 
 static const struct drm_display_mode axs15231b_mode = {
@@ -348,7 +354,7 @@ static int axs15231b_probe(struct spi_device *spi)
 
 	/* Optional reset line; deasserted at request time */
 	panel->reset_gpio = devm_gpiod_get_optional(dev, "reset",
-						    GPIOD_OUT_HIGH);
+						    GPIOD_OUT_LOW);
 	if (IS_ERR(panel->reset_gpio))
 		return dev_err_probe(dev, PTR_ERR(panel->reset_gpio),
 				     "failed to get reset GPIO\n");

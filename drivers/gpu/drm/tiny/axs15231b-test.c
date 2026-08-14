@@ -33,15 +33,15 @@ static void axs15231b_rect_bytes_test(struct kunit *test)
 	int ret;
 
 	/* Full frame: 640 * 172 * 2 */
-	ret = axs15231b_rect_bytes(0, 0, AXS15231B_WIDTH - 1,
-				   AXS15231B_HEIGHT - 1, &bytes);
+	ret = axs15231b_rect_bytes(0, 0, AXS15231B_WIDTH,
+				   AXS15231B_HEIGHT, &bytes);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_EQ(test, bytes,
 			(size_t)AXS15231B_WIDTH * AXS15231B_HEIGHT *
 			AXS15231B_BYTES_PER_PIXEL);
 
 	/* Single pixel */
-	ret = axs15231b_rect_bytes(7, 9, 7, 9, &bytes);
+	ret = axs15231b_rect_bytes(7, 9, 8, 10, &bytes);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_EQ(test, bytes, 2);
 
@@ -50,11 +50,11 @@ static void axs15231b_rect_bytes_test(struct kunit *test)
 	KUNIT_EXPECT_EQ(test, ret, -EINVAL);
 
 	/* Beyond panel width */
-	ret = axs15231b_rect_bytes(0, 0, AXS15231B_WIDTH, 0, &bytes);
+	ret = axs15231b_rect_bytes(0, 0, AXS15231B_WIDTH + 1, 1, &bytes);
 	KUNIT_EXPECT_EQ(test, ret, -EINVAL);
 
 	/* Beyond panel height */
-	ret = axs15231b_rect_bytes(0, 0, 0, AXS15231B_HEIGHT, &bytes);
+	ret = axs15231b_rect_bytes(0, 0, 1, AXS15231B_HEIGHT + 1, &bytes);
 	KUNIT_EXPECT_EQ(test, ret, -EINVAL);
 
 	/* NULL output */
