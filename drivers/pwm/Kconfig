@@ -249,6 +249,21 @@ config PWM_DWC
 	  To compile this driver as a module, choose M here: the module
 	  will be called pwm-dwc.
 
+config PWM_ESP32S3
+	tristate "Espressif ESP32-S3 LED PWM support"
+	depends on XTENSA_PLATFORM_ESP32S3 || COMPILE_TEST
+	depends on OF && HAS_IOMEM
+	help
+	  Enable the eight-channel, four-timer LED PWM controller found in
+	  the Espressif ESP32-S3.
+
+config PWM_ESP32S3_KUNIT_TEST
+	tristate "KUnit tests for ESP32-S3 LED PWM" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Test ESP32-S3 LED PWM timer and duty-cycle calculations.
+
 config PWM_EP93XX
 	tristate "Cirrus Logic EP93xx PWM support"
 	depends on ARCH_EP93XX || COMPILE_TEST
