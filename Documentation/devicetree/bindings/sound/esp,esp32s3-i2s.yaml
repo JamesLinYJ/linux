@@ -1,0 +1,78 @@
+# SPDX-License-Identifier: GPL-2.0-only
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/esp,esp32s3-i2s.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: ESP32-S3 I2S controller (ASoC CPU DAI)
+
+maintainers:
+  - ESP32-S3 Linux project <noreply@example.invalid>
+
+description: |
+  ESP32-S3 I2S controller exposed as an ASoC CPU DAI. PCM transfers use
+  the ESP32-S3 GDMA dmaengine channels; the driver currently supports
+  master mode with the Phillips (I2S) frame format and 2 channels. The
+  Waveshare ESP32-S3-Touch-LCD-3.49 V2 connects MCLK to GPIO7, BCLK to
+  GPIO15, WS to GPIO46, DSOUT to GPIO6 and DSDIN to GPIO45.
+
+properties:
+  compatible:
+    const: esp,esp32s3-i2s
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    items:
+      - description: peripheral gate clock (syscon)
+      - description: reference clock used for the divider math (160 MHz)
+
+  clock-names:
+    items:
+      - const: gate
+      - const: source
+
+  resets:
+    maxItems: 1
+
+  dmas:
+    items:
+      - description: RX (capture) GDMA channel
+      - description: TX (playback) GDMA channel
+
+  dma-names:
+    items:
+      - const: rx
+      - const: tx
+
+  pinctrl-0: true
+  pinctrl-names: true
+
+  "#sound-dai-cells":
+    const: 0
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - clock-names
+  - resets
+  - dmas
+  - dma-names
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    i2s0: i2s@6000f000 {
+        compatible = "esp,esp32s3-i2s";
+        reg = <0x6000f000 0x1000>;
+        clocks = <&syscon 6>, <&i2s_160m>;
+        clock-names = "gate", "source";
+        resets = <&syscon 6>;
+        dmas = <&gdma 3 0>, <&gdma 3 1>;
+        dma-names = "rx", "tx";
+        #sound-dai-cells = <0>;
+    };
+...

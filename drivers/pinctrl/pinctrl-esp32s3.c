@@ -126,6 +126,11 @@ static const struct esp32s3_pin_function esp32s3_pin_functions[] = {
 	{ "ledc-ls5", 78 },
 	{ "ledc-ls6", 79 },
 	{ "ledc-ls7", 80 },
+	{ "i2s0-mclk", 23 },
+	{ "i2s0-bck", 22 },
+	{ "i2s0-ws", 24 },
+	{ "i2s0-din", 25, true },
+	{ "i2s0-dout", 25 },
 };
 
 static bool esp32s3_gpio_pin_valid(unsigned int pin)

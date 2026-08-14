@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-2.0-only
+config SND_SOC_ESP32S3_I2S
+	tristate "ESP32-S3 I2S controller ASoC CPU DAI"
+	depends on SND_SOC
+	select SND_SOC_GENERIC_DMAENGINE_PCM
+	help
+	  Say Y here to enable the ASoC CPU DAI for the ESP32-S3 I2S
+	  controller. PCM transfers use the ESP32-S3 GDMA dmaengine
+	  driver; the I2S controller runs in master mode with the
+	  Phillips (I2S) frame format.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called i2s-esp32s3.
+
+config SND_SOC_ESP32S3_I2S_KUNIT_TEST
+	tristate "KUnit tests for the ESP32-S3 I2S driver" if !KUNIT_ALL_TESTS
+	depends on KUNIT && SND_SOC_ESP32S3_I2S
+	default KUNIT_ALL_TESTS
+	help
+	  Build pure-logic tests for the ESP32-S3 I2S clock divider
+	  calculation. These tests run without ESP32-S3 hardware and do
+	  not exercise any register access. If unsure, say N and run the
+	  tests through the project's minimal UML KUnit configuration
+	  instead.

@@ -70,6 +70,12 @@
 			#clock-cells = <0>;
 			clock-frequency = <40000000>;
 		};
+
+		i2s_160m: i2s-160m-clock {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <160000000>;
+		};
 	};
 
 	syscon: clock-controller@600c0000 {
@@ -130,6 +136,47 @@
 			spi-cpol;
 			reset-gpios = <&tca9554 5 GPIO_ACTIVE_LOW>;
 			backlight = <&lcd_backlight>;
+		};
+	};
+
+	i2s0: i2s@6000f000 {
+		compatible = "esp,esp32s3-i2s";
+		reg = <0x6000f000 0x1000>;
+		clocks = <&syscon ESP32S3_CLK_I2S0>, <&i2s_160m>;
+		clock-names = "gate", "source";
+		resets = <&syscon ESP32S3_RST_I2S0>;
+		dmas = <&gdma ESP32S3_GDMA_TRIG_I2S0 ESP32S3_GDMA_DIR_RX>,
+		       <&gdma ESP32S3_GDMA_TRIG_I2S0 ESP32S3_GDMA_DIR_TX>;
+		dma-names = "rx", "tx";
+		pinctrl-names = "default";
+		pinctrl-0 = <&i2s0_mclk_pin &i2s0_bck_pin &i2s0_ws_pin
+			     &i2s0_dout_pin &i2s0_din_pin>;
+		#sound-dai-cells = <0>;
+
+		i2s0_mclk_pin: i2s0-mclk-pin {
+			pins = "gpio7";
+			function = "i2s0-mclk";
+		};
+
+		i2s0_bck_pin: i2s0-bck-pin {
+			pins = "gpio15";
+			function = "i2s0-bck";
+		};
+
+		i2s0_ws_pin: i2s0-ws-pin {
+			pins = "gpio46";
+			function = "i2s0-ws";
+		};
+
+		i2s0_dout_pin: i2s0-dout-pin {
+			pins = "gpio6";
+			function = "i2s0-dout";
+		};
+
+		i2s0_din_pin: i2s0-din-pin {
+			pins = "gpio45";
+			function = "i2s0-din";
+			input-enable;
 		};
 	};
 

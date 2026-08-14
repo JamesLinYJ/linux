@@ -8,7 +8,8 @@
 #define ESP32S3_RST_GDMA	3
 #define ESP32S3_RST_LEDC	4
 #define ESP32S3_RST_SPI2	5
+#define ESP32S3_RST_I2S0	6
 
-#define ESP32S3_RST_NUM		6
+#define ESP32S3_RST_NUM		7
 
 #endif /* _DT_BINDINGS_RESET_ESP32S3_H */
