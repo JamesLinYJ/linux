@@ -28,12 +28,26 @@ properties:
   interrupts:
     maxItems: 1
 
+  dmas:
+    items:
+      - description: receive DMA channel
+      - description: transmit DMA channel
+
+  dma-names:
+    items:
+      - const: rx
+      - const: tx
+
 required:
   - compatible
   - reg
   - clocks
   - resets
   - interrupts
+
+dependencies:
+  dmas: [dma-names]
+  dma-names: [dmas]
 
 unevaluatedProperties: false
 
