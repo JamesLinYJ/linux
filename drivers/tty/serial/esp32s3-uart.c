@@ -25,38 +25,20 @@
 #include "esp32s3-uart.h"
 
 #define ESP32S3_UART_FIFO			0x00
+#define ESP32S3_UART_INT_ST			0x08
 #define ESP32S3_UART_INT_ENA			0x0c
 #define ESP32S3_UART_INT_CLR			0x10
 #define ESP32S3_UART_CLKDIV			0x14
 #define ESP32S3_UART_STATUS			0x1c
 #define ESP32S3_UART_CONF0			0x20
 #define ESP32S3_UART_CONF1			0x24
-#define ESP32S3_UART_RXD_CNT			0x30
-#define ESP32S3_UART_IDLE_CONF			0x48
+#define ESP32S3_UART_MEM_CONF			0x60
 #define ESP32S3_UART_CLK_CONF			0x78
 
 /* Interrupt sources (uart_reg.h bit positions) */
 #define ESP32S3_UART_INT_RXFIFO_FULL		BIT(0)
 #define ESP32S3_UART_INT_TXFIFO_EMPTY		BIT(1)
 #define ESP32S3_UART_INT_RXFIFO_TOUT		BIT(8)
-
-/* STATUS register fields */
-#define ESP32S3_UART_STATUS_RXFIFO_CNT		GENMASK(15, 8)
-#define ESP32S3_UART_STATUS_TXFIFO_CNT		GENMASK(23, 16)
-
-/* CONF0 fields (bit positions per uart_struct.h) */
-#define ESP32S3_UART_CONF0_BIT_NUM		GENMASK(3, 2)
-#define ESP32S3_UART_CONF0_PARITY_EN		BIT(18)
-#define ESP32S3_UART_CONF0_PARITY		BIT(19)
-#define ESP32S3_UART_CONF0_STOP_BIT_NUM		GENMASK(6, 4)
-
-/* CONF1 fields */
-#define ESP32S3_UART_CONF1_RXFIFO_FULL_THRHD	GENMASK(15, 8)
-#define ESP32S3_UART_CONF1_TXFIFO_EMPTY_THRHD	GENMASK(23, 16)
-
-/* CLKDIV fields */
-#define ESP32S3_UART_CLKDIV_FRAG		GENMASK(23, 20)
-#define ESP32S3_UART_CLKDIV_DIV		GENMASK(19, 0)
 
 #define ESP32S3_UART_FIFO_DEPTH		128
 
@@ -86,16 +68,23 @@ static inline u32 esp32s3_uart_read(struct uart_port *port,
 static int esp32s3_uart_set_baud(struct uart_port *port, unsigned int baud)
 {
 	u32 clk_div;
+	u32 clk_conf;
+	u8 sclk_div_num;
 	int ret;
 
-	/* sclk_div fixed at 1 (APB 80 MHz source) */
-	ret = esp32s3_uart_clk_div(port->uartclk, baud, &clk_div);
+	ret = esp32s3_uart_clk_div(port->uartclk, baud, &clk_div,
+				   &sclk_div_num);
 	if (ret)
 		return ret;
 
 	esp32s3_uart_write(port, ESP32S3_UART_CLKDIV,
 			   FIELD_PREP(ESP32S3_UART_CLKDIV_FRAG, clk_div & 0xf) |
 			   FIELD_PREP(ESP32S3_UART_CLKDIV_DIV, clk_div >> 4));
+	clk_conf = esp32s3_uart_read(port, ESP32S3_UART_CLK_CONF);
+	clk_conf &= ~ESP32S3_UART_CLK_CONF_SCLK_DIV_NUM;
+	clk_conf |= FIELD_PREP(ESP32S3_UART_CLK_CONF_SCLK_DIV_NUM,
+			       sclk_div_num);
+	esp32s3_uart_write(port, ESP32S3_UART_CLK_CONF, clk_conf);
 	return 0;
 }
 
@@ -108,7 +97,8 @@ static void esp32s3_uart_set_termios(struct uart_port *port,
 	u8 bits;
 
 	baud = uart_get_baud_rate(port, termios, old, 110, 4000000);
-	esp32s3_uart_set_baud(port, baud);
+	if (esp32s3_uart_set_baud(port, baud))
+		return;
 
 	switch (termios->c_cflag & CSIZE) {
 	case CS5:
@@ -127,6 +117,7 @@ static void esp32s3_uart_set_termios(struct uart_port *port,
 	conf0 &= ~ESP32S3_UART_CONF0_BIT_NUM;
 	conf0 |= FIELD_PREP(ESP32S3_UART_CONF0_BIT_NUM, bits);
 
+	conf0 &= ~ESP32S3_UART_CONF0_STOP_BIT_NUM;
 	if (termios->c_cflag & CSTOPB)
 		conf0 |= 0x3 << __ffs(ESP32S3_UART_CONF0_STOP_BIT_NUM);
 	else
@@ -200,7 +191,10 @@ static void esp32s3_uart_receive(struct uart_port *port)
 static void esp32s3_uart_transmit(struct uart_port *port)
 {
 	struct tty_port *tport = &port->state->port;
-	unsigned int pending = ESP32S3_UART_FIFO_DEPTH / 2;
+	u32 status = esp32s3_uart_read(port, ESP32S3_UART_STATUS);
+	unsigned int count = FIELD_GET(ESP32S3_UART_STATUS_TXFIFO_CNT, status);
+	unsigned int pending = count < ESP32S3_UART_FIFO_DEPTH ?
+		ESP32S3_UART_FIFO_DEPTH - count : 0;
 	u8 ch;
 
 	while (pending-- && !kfifo_is_empty(&tport->xmit_fifo) &&
@@ -212,6 +206,8 @@ static void esp32s3_uart_transmit(struct uart_port *port)
 
 	if (kfifo_len(&tport->xmit_fifo) < WAKEUP_CHARS)
 		uart_write_wakeup(port);
+	if (kfifo_is_empty(&tport->xmit_fifo) || uart_tx_stopped(port))
+		esp32s3_uart_stop_tx(port);
 }
 
 static irqreturn_t esp32s3_uart_irq(int irq, void *dev_id)
@@ -220,7 +216,11 @@ static irqreturn_t esp32s3_uart_irq(int irq, void *dev_id)
 	u32 status;
 
 	/* S3 UART shares one interrupt line; read and clear the sources */
-	status = esp32s3_uart_read(port, ESP32S3_UART_INT_ENA);
+	status = esp32s3_uart_read(port, ESP32S3_UART_INT_ST);
+	if (!(status & (ESP32S3_UART_INT_RXFIFO_FULL |
+			ESP32S3_UART_INT_RXFIFO_TOUT |
+			ESP32S3_UART_INT_TXFIFO_EMPTY)))
+		return IRQ_NONE;
 	if (status & (ESP32S3_UART_INT_RXFIFO_FULL |
 		      ESP32S3_UART_INT_RXFIFO_TOUT)) {
 		esp32s3_uart_write(port, ESP32S3_UART_INT_CLR,
@@ -250,10 +250,14 @@ static int esp32s3_uart_startup(struct uart_port *port)
 		 FIELD_PREP(ESP32S3_UART_CONF1_TXFIFO_EMPTY_THRHD, 64);
 	esp32s3_uart_write(port, ESP32S3_UART_CONF1, conf1);
 
-	/* RX timeout after 12 idle bit times; enable the timeout source */
-	esp32s3_uart_write(port, ESP32S3_UART_IDLE_CONF, 12);
+	/* RX timeout after 12 byte times; enable the timeout source. */
+	conf1 = esp32s3_uart_read(port, ESP32S3_UART_MEM_CONF);
+	conf1 &= ~ESP32S3_UART_MEM_CONF_RX_TOUT_THRHD;
+	conf1 |= FIELD_PREP(ESP32S3_UART_MEM_CONF_RX_TOUT_THRHD, 12);
+	esp32s3_uart_write(port, ESP32S3_UART_MEM_CONF, conf1);
 	conf1 = esp32s3_uart_read(port, ESP32S3_UART_CONF1);
-	esp32s3_uart_write(port, ESP32S3_UART_CONF1, conf1 | BIT(23) /* RX_TOUT_EN */);
+	esp32s3_uart_write(port, ESP32S3_UART_CONF1,
+			   conf1 | ESP32S3_UART_CONF1_RX_TOUT_EN);
 
 	ret = request_irq(port->irq, esp32s3_uart_irq, IRQF_SHARED,
 			  dev_name(port->dev), port);
@@ -307,7 +311,7 @@ static int esp32s3_uart_probe(struct platform_device *pdev)
 	struct esp32s3_uart *esp;
 	struct uart_port *port;
 	unsigned long rate;
-	int ret;
+	u32 clk_conf;
 
 	esp = devm_kzalloc(dev, sizeof(*esp), GFP_KERNEL);
 	if (!esp)
@@ -323,13 +327,10 @@ static int esp32s3_uart_probe(struct platform_device *pdev)
 	if (port->irq < 0)
 		return port->irq;
 
-	esp->clk = devm_clk_get(dev, NULL);
+	esp->clk = devm_clk_get_enabled(dev, NULL);
 	if (IS_ERR(esp->clk))
 		return dev_err_probe(dev, PTR_ERR(esp->clk),
 				     "failed to get UART clock\n");
-	ret = clk_prepare_enable(esp->clk);
-	if (ret)
-		return dev_err_probe(dev, ret, "failed to enable UART clock\n");
 	rate = clk_get_rate(esp->clk);
 	if (!rate)
 		return dev_err_probe(dev, -EINVAL, "invalid UART clock rate\n");
@@ -343,8 +344,13 @@ static int esp32s3_uart_probe(struct platform_device *pdev)
 	if (port->line < 0)
 		port->line = 0;
 
-	/* APB clock source with sclk_div = 1 (official default) */
-	esp32s3_uart_write(port, ESP32S3_UART_CLK_CONF, 0);
+	/* APB 80 MHz source, module divider 1, and all UART clocks enabled. */
+	clk_conf = FIELD_PREP(ESP32S3_UART_CLK_CONF_SCLK_DIV_NUM, 0) |
+		FIELD_PREP(ESP32S3_UART_CLK_CONF_SCLK_SEL, 1) |
+		ESP32S3_UART_CLK_CONF_SCLK_EN |
+		ESP32S3_UART_CLK_CONF_TX_SCLK_EN |
+		ESP32S3_UART_CLK_CONF_RX_SCLK_EN;
+	esp32s3_uart_write(port, ESP32S3_UART_CLK_CONF, clk_conf);
 
 	platform_set_drvdata(pdev, esp);
 
@@ -356,7 +362,6 @@ static void esp32s3_uart_remove(struct platform_device *pdev)
 	struct esp32s3_uart *esp = platform_get_drvdata(pdev);
 
 	uart_remove_one_port(&esp32s3_uart_driver, &esp->port);
-	clk_disable_unprepare(esp->clk);
 }
 
 static const struct of_device_id esp32s3_uart_of_match[] = {

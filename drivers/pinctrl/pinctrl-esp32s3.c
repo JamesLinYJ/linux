@@ -97,42 +97,54 @@ struct esp32s3_pin_function {
 	const char *name;
 	u16 signal;
 	bool input_enable;
+	bool output_enable;
 	bool open_drain;
 	bool analog;
 };
 
 static const struct esp32s3_pin_function esp32s3_pin_functions[] = {
-	{ "gpio", ESP32S3_GPIO_MATRIX_GPIO_OUT },
-	{ "analog", ESP32S3_GPIO_MATRIX_GPIO_OUT, .analog = true },
-	{ "i2c0-scl", 89, true, true },
-	{ "i2c0-sda", 90, true, true },
-	{ "i2c1-scl", 91, true, true },
-	{ "i2c1-sda", 92, true, true },
-	{ "spi2-clk", 101 },
-	{ "spi2-q", 102, true },
-	{ "spi2-d", 103, true },
-	{ "spi2-cs0", 110 },
-	{ "spi3-clk", 66 },
-	{ "spi3-q", 67, true },
-	{ "spi3-d", 68, true },
-	{ "spi3-hd", 69, true },
-	{ "spi3-wp", 70, true },
-	{ "spi3-cs0", 71 },
-	{ "ledc-ls0", 73 },
-	{ "ledc-ls1", 74 },
-	{ "ledc-ls2", 75 },
-	{ "ledc-ls3", 76 },
-	{ "ledc-ls4", 77 },
-	{ "ledc-ls5", 78 },
-	{ "ledc-ls6", 79 },
-	{ "ledc-ls7", 80 },
-	{ "i2s0-mclk", 23 },
-	{ "i2s0-bck", 22 },
-	{ "i2s0-ws", 24 },
-	{ "i2s0-din", 25, true },
-	{ "i2s0-dout", 25 },
-	{ "uart0-txd", 12 },
-	{ "uart0-rxd", 12, true },
+	{ .name = "gpio", .signal = ESP32S3_GPIO_MATRIX_GPIO_OUT },
+	{ .name = "analog", .signal = ESP32S3_GPIO_MATRIX_GPIO_OUT,
+	  .analog = true },
+	{ .name = "i2c0-scl", .signal = 89, .input_enable = true,
+	  .output_enable = true, .open_drain = true },
+	{ .name = "i2c0-sda", .signal = 90, .input_enable = true,
+	  .output_enable = true, .open_drain = true },
+	{ .name = "i2c1-scl", .signal = 91, .input_enable = true,
+	  .output_enable = true, .open_drain = true },
+	{ .name = "i2c1-sda", .signal = 92, .input_enable = true,
+	  .output_enable = true, .open_drain = true },
+	{ .name = "spi2-clk", .signal = 101, .output_enable = true },
+	{ .name = "spi2-q", .signal = 102, .input_enable = true,
+	  .output_enable = true },
+	{ .name = "spi2-d", .signal = 103, .input_enable = true,
+	  .output_enable = true },
+	{ .name = "spi2-cs0", .signal = 110, .output_enable = true },
+	{ .name = "spi3-clk", .signal = 66, .output_enable = true },
+	{ .name = "spi3-q", .signal = 67, .input_enable = true,
+	  .output_enable = true },
+	{ .name = "spi3-d", .signal = 68, .input_enable = true,
+	  .output_enable = true },
+	{ .name = "spi3-hd", .signal = 69, .input_enable = true,
+	  .output_enable = true },
+	{ .name = "spi3-wp", .signal = 70, .input_enable = true,
+	  .output_enable = true },
+	{ .name = "spi3-cs0", .signal = 71, .output_enable = true },
+	{ .name = "ledc-ls0", .signal = 73, .output_enable = true },
+	{ .name = "ledc-ls1", .signal = 74, .output_enable = true },
+	{ .name = "ledc-ls2", .signal = 75, .output_enable = true },
+	{ .name = "ledc-ls3", .signal = 76, .output_enable = true },
+	{ .name = "ledc-ls4", .signal = 77, .output_enable = true },
+	{ .name = "ledc-ls5", .signal = 78, .output_enable = true },
+	{ .name = "ledc-ls6", .signal = 79, .output_enable = true },
+	{ .name = "ledc-ls7", .signal = 80, .output_enable = true },
+	{ .name = "i2s0-mclk", .signal = 23, .output_enable = true },
+	{ .name = "i2s0-bck", .signal = 22, .output_enable = true },
+	{ .name = "i2s0-ws", .signal = 24, .output_enable = true },
+	{ .name = "i2s0-din", .signal = 25, .input_enable = true },
+	{ .name = "i2s0-dout", .signal = 25, .output_enable = true },
+	{ .name = "uart0-txd", .signal = 12, .output_enable = true },
+	{ .name = "uart0-rxd", .signal = 12, .input_enable = true },
 };
 
 static bool esp32s3_gpio_pin_valid(unsigned int pin)
@@ -266,9 +278,10 @@ static void esp32s3_select_matrix_signal(struct esp32s3_pinctrl *pctl,
 	esp32s3_update_bits(pctl, esp32s3_gpio_pin_reg(pctl, pin),
 			    ESP32S3_GPIO_PIN_PAD_DRIVER,
 			    func->open_drain ? ESP32S3_GPIO_PIN_PAD_DRIVER : 0);
-	esp32s3_update_bits(pctl,
-			    pctl->gpio_base + ESP32S3_GPIO_OUT_SEL_BASE +
-			    pin * sizeof(u32), GENMASK(11, 0), func->signal);
+	if (func->output_enable)
+		esp32s3_update_bits(pctl,
+				    pctl->gpio_base + ESP32S3_GPIO_OUT_SEL_BASE +
+				    pin * sizeof(u32), GENMASK(11, 0), func->signal);
 	if (func->input_enable) {
 		void __iomem *input_reg = pctl->gpio_base +
 			ESP32S3_GPIO_IN_SEL_BASE + func->signal * sizeof(u32);
@@ -279,7 +292,7 @@ static void esp32s3_select_matrix_signal(struct esp32s3_pinctrl *pctl,
 				    FIELD_PREP(ESP32S3_GPIO_IN_SEL, pin) |
 				    ESP32S3_GPIO_IN_SEL_MATRIX);
 	}
-	esp32s3_gpio_set_output_enable(pctl, pin, true);
+	esp32s3_gpio_set_output_enable(pctl, pin, func->output_enable);
 }
 
 static const struct pinctrl_ops esp32s3_pinctrl_ops = {
