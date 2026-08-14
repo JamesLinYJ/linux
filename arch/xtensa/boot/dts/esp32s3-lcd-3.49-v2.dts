@@ -3,6 +3,7 @@
 
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/clock/esp32s3.h>
+#include <dt-bindings/dma/esp32s3-gdma.h>
 #include <dt-bindings/reset/esp32s3.h>
 
 / {
@@ -83,6 +84,9 @@
 		resets = <&syscon ESP32S3_RST_SPI3>;
 		interrupt-parent = <&intc>;
 		interrupts = <22 IRQ_TYPE_LEVEL_HIGH>;
+		dmas = <&gdma ESP32S3_GDMA_TRIG_SPI3 ESP32S3_GDMA_DIR_RX>,
+		       <&gdma ESP32S3_GDMA_TRIG_SPI3 ESP32S3_GDMA_DIR_TX>;
+		dma-names = "rx", "tx";
 		pinctrl-names = "default";
 		pinctrl-0 = <&spi3_cs0_pin &spi3_clk_pin &spi3_d_pin
 			     &spi3_q_pin &spi3_wp_pin &spi3_hd_pin>;
