@@ -17,6 +17,7 @@
 		i2c0 = &i2c0;
 		i2c1 = &i2c1;
 		serial0 = &usb_serial_jtag;
+		spi0 = &spi3;
 	};
 
 	chosen {
@@ -61,6 +62,20 @@
 		clocks = <&xtal>;
 		#clock-cells = <1>;
 		#reset-cells = <1>;
+	};
+
+	spi3: spi@60025000 {
+		compatible = "esp,esp32s3-spi";
+		reg = <0x60025000 0x1000>;
+		clocks = <&syscon ESP32S3_CLK_SPI3>;
+		resets = <&syscon ESP32S3_RST_SPI3>;
+		interrupt-parent = <&intc>;
+		interrupts = <22 IRQ_TYPE_LEVEL_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&spi3_cs0_pin &spi3_clk_pin &spi3_d_pin
+			     &spi3_q_pin &spi3_wp_pin &spi3_hd_pin>;
+		#address-cells = <1>;
+		#size-cells = <0>;
 	};
 
 	i2c0: i2c@60013000 {
@@ -171,6 +186,46 @@
 			function = "i2c1-sda";
 			bias-pull-up;
 			drive-open-drain;
+			input-enable;
+		};
+
+		spi3_cs0_pin: spi3-cs0-pin {
+			pins = "gpio9";
+			function = "spi3-cs0";
+			drive-push-pull;
+		};
+
+		spi3_clk_pin: spi3-clk-pin {
+			pins = "gpio10";
+			function = "spi3-clk";
+			drive-push-pull;
+		};
+
+		spi3_d_pin: spi3-d-pin {
+			pins = "gpio11";
+			function = "spi3-d";
+			drive-push-pull;
+			input-enable;
+		};
+
+		spi3_q_pin: spi3-q-pin {
+			pins = "gpio12";
+			function = "spi3-q";
+			drive-push-pull;
+			input-enable;
+		};
+
+		spi3_wp_pin: spi3-wp-pin {
+			pins = "gpio13";
+			function = "spi3-wp";
+			drive-push-pull;
+			input-enable;
+		};
+
+		spi3_hd_pin: spi3-hd-pin {
+			pins = "gpio14";
+			function = "spi3-hd";
+			drive-push-pull;
 			input-enable;
 		};
 	};
