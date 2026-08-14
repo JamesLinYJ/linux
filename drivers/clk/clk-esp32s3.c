@@ -38,6 +38,7 @@ static const struct esp32s3_peripheral_gate esp32s3_peripheral_gates[] = {
 	[ESP32S3_RST_I2C1] = { .bit = 18 },
 	[ESP32S3_RST_SPI3] = { .bit = 16 },
 	[ESP32S3_RST_GDMA] = { .bank = 1, .bit = 6 },
+	[ESP32S3_RST_LEDC] = { .bit = 11 },
 };
 
 static void __iomem *esp32s3_syscon_reg(struct esp32s3_syscon *syscon,
@@ -146,7 +147,9 @@ esp32s3_register_peripheral_gate(struct device *dev,
 
 static int esp32s3_syscon_probe(struct platform_device *pdev)
 {
-	static const char * const names[] = { "i2c0", "i2c1", "spi3", "gdma" };
+	static const char * const names[] = {
+		"i2c0", "i2c1", "spi3", "gdma", "ledc"
+	};
 	struct device *dev = &pdev->dev;
 	struct esp32s3_syscon *syscon;
 	struct clk_parent_data parent = { .index = 0 };

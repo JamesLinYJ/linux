@@ -6,7 +6,8 @@
 #define ESP32S3_CLK_I2C1	1
 #define ESP32S3_CLK_SPI3	2
 #define ESP32S3_CLK_GDMA	3
+#define ESP32S3_CLK_LEDC	4
 
-#define ESP32S3_CLK_NUM		4
+#define ESP32S3_CLK_NUM		5
 
 #endif /* _DT_BINDINGS_CLOCK_ESP32S3_H */
