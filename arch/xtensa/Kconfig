@@ -425,6 +425,16 @@ config XTENSA_PLATFORM_XTFPGA
 	  XTFPGA is the name of Tensilica board family (LX60, LX110, LX200, ML605).
 	  This hardware is capable of running a full Linux distribution.
 
+config XTENSA_PLATFORM_ESP32S3
+	bool "Espressif ESP32-S3"
+	select PLATFORM_HAVE_XIP
+	select PLATFORM_WANT_DEFAULT_MEM if !MMU
+	help
+	  Select the native, Linux-exclusive ESP32-S3 platform.  The kernel
+	  executes from the PSRAM IBus alias and keeps writable state in the
+	  DBus alias.  This option does not start or retain ESP-IDF, FreeRTOS,
+	  or a companion CPU firmware.
+
 endchoice
 
 config PLATFORM_NR_IRQS

@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/dts-v1/;
+
+/ {
+	model = "Waveshare ESP32-S3-Touch-LCD-3.49 V2";
+	compatible = "waveshare,esp32-s3-touch-lcd-3.49-v2",
+		     "esp,esp32s3";
+	#address-cells = <1>;
+	#size-cells = <1>;
+	interrupt-parent = <&pic>;
+
+	chosen {
+	};
+
+	memory@3c300000 {
+		device_type = "memory";
+		reg = <0x3c300000 0x004f0000>;
+	};
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			compatible = "cdns,xtensa-cpu";
+			device_type = "cpu";
+			reg = <0>;
+			clocks = <&cpu_clk>;
+		};
+	};
+
+	clocks {
+		cpu_clk: cpu-clock {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <240000000>;
+		};
+	};
+
+	pic: interrupt-controller {
+		compatible = "cdns,xtensa-pic";
+		#address-cells = <0>;
+		#interrupt-cells = <2>;
+		interrupt-controller;
+	};
+};
