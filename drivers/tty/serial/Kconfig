@@ -14,6 +14,18 @@ config SERIAL_EARLYCON
 	  the console before standard serial driver is probed. The console is
 	  enabled when early_param is processed.
 
+config SERIAL_ESP32S3_USB_EARLYCON
+	bool "ESP32-S3 USB Serial/JTAG early console"
+	depends on XTENSA_PLATFORM_ESP32S3
+	select SERIAL_CORE
+	select SERIAL_CORE_CONSOLE
+	select SERIAL_EARLYCON
+	help
+	  Provide bounded, polling-only early kernel output through the
+	  ESP32-S3 USB Serial/JTAG peripheral. This is not a normal TTY driver
+	  and does not provide input or interrupt-driven operation. The full
+	  runtime TTY driver is intentionally separate.
+
 source "drivers/tty/serial/8250/Kconfig"
 
 comment "Non-8250 serial port support"
