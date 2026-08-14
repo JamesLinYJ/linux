@@ -85,14 +85,22 @@ struct esp32s3_pinctrl {
 struct esp32s3_pin_function {
 	const char *name;
 	u16 signal;
+	bool input_enable;
+	bool open_drain;
 };
 
 static const struct esp32s3_pin_function esp32s3_pin_functions[] = {
 	{ "gpio", ESP32S3_GPIO_MATRIX_GPIO_OUT },
-	{ "i2c0-scl", 89 },
-	{ "i2c0-sda", 90 },
-	{ "i2c1-scl", 91 },
-	{ "i2c1-sda", 92 },
+	{ "i2c0-scl", 89, true, true },
+	{ "i2c0-sda", 90, true, true },
+	{ "i2c1-scl", 91, true, true },
+	{ "i2c1-sda", 92, true, true },
+	{ "spi3-clk", 66 },
+	{ "spi3-q", 67, true },
+	{ "spi3-d", 68, true },
+	{ "spi3-hd", 69, true },
+	{ "spi3-wp", 70, true },
+	{ "spi3-cs0", 71 },
 };
 
 static bool esp32s3_gpio_pin_valid(unsigned int pin)
@@ -175,27 +183,35 @@ static void esp32s3_select_gpio(struct esp32s3_pinctrl *pctl,
 }
 
 static void esp32s3_select_matrix_signal(struct esp32s3_pinctrl *pctl,
-					 unsigned int pin, unsigned int signal)
+					 unsigned int pin,
+					 const struct esp32s3_pin_function *func)
 {
+	u32 iomux_value = FIELD_PREP(ESP32S3_IOMUX_PIN_FUNC,
+				     ESP32S3_IOMUX_PIN_FUNC_GPIO);
+
+	if (func->input_enable)
+		iomux_value |= ESP32S3_IOMUX_PIN_INPUT_ENABLE;
 	esp32s3_gpio_set_value(pctl, pin, true);
 	esp32s3_update_bits(pctl, esp32s3_iomux_pin_reg(pctl, pin),
 			    ESP32S3_IOMUX_PIN_FUNC |
 			    ESP32S3_IOMUX_PIN_INPUT_ENABLE,
-			    FIELD_PREP(ESP32S3_IOMUX_PIN_FUNC,
-				       ESP32S3_IOMUX_PIN_FUNC_GPIO) |
-			    ESP32S3_IOMUX_PIN_INPUT_ENABLE);
+			    iomux_value);
 	esp32s3_update_bits(pctl, esp32s3_gpio_pin_reg(pctl, pin),
 			    ESP32S3_GPIO_PIN_PAD_DRIVER,
-			    ESP32S3_GPIO_PIN_PAD_DRIVER);
+			    func->open_drain ? ESP32S3_GPIO_PIN_PAD_DRIVER : 0);
 	esp32s3_update_bits(pctl,
 			    pctl->gpio_base + ESP32S3_GPIO_OUT_SEL_BASE +
-			    pin * sizeof(u32), GENMASK(11, 0), signal);
-	esp32s3_update_bits(pctl,
-			    pctl->gpio_base + ESP32S3_GPIO_IN_SEL_BASE +
-			    signal * sizeof(u32),
-			    ESP32S3_GPIO_IN_SEL | ESP32S3_GPIO_IN_SEL_MATRIX,
-			    FIELD_PREP(ESP32S3_GPIO_IN_SEL, pin) |
-			    ESP32S3_GPIO_IN_SEL_MATRIX);
+			    pin * sizeof(u32), GENMASK(11, 0), func->signal);
+	if (func->input_enable) {
+		void __iomem *input_reg = pctl->gpio_base +
+			ESP32S3_GPIO_IN_SEL_BASE + func->signal * sizeof(u32);
+
+		esp32s3_update_bits(pctl, input_reg,
+				    ESP32S3_GPIO_IN_SEL |
+				    ESP32S3_GPIO_IN_SEL_MATRIX,
+				    FIELD_PREP(ESP32S3_GPIO_IN_SEL, pin) |
+				    ESP32S3_GPIO_IN_SEL_MATRIX);
+	}
 	esp32s3_gpio_set_output_enable(pctl, pin, true);
 }
 
@@ -219,7 +235,7 @@ static int esp32s3_pinmux_set(struct pinctrl_dev *pctldev,
 		esp32s3_select_gpio(pctl, group);
 	else
 		esp32s3_select_matrix_signal(pctl, group,
-					     esp32s3_pin_functions[function].signal);
+					     &esp32s3_pin_functions[function]);
 	return 0;
 }
 
