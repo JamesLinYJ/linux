@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/xtensa/esp,esp32s3.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Espressif ESP32-S3 based boards
+
+maintainers:
+  - Max Filippov <jcmvbkbc@gmail.com>
+
+properties:
+  $nodename:
+    const: '/'
+
+  compatible:
+    oneOf:
+      - description: Waveshare ESP32-S3-Touch-LCD-3.49 V2
+        items:
+          - const: waveshare,esp32-s3-touch-lcd-3.49-v2
+          - const: esp,esp32s3
+
+required:
+  - compatible
+
+additionalProperties: true
+
+examples:
+  - |
+    / {
+        model = "Waveshare ESP32-S3-Touch-LCD-3.49 V2";
+        compatible = "waveshare,esp32-s3-touch-lcd-3.49-v2",
+                     "esp,esp32s3";
+    };
