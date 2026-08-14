@@ -20,6 +20,8 @@
 #include <linux/irqchip/xtensa-pic.h>
 #include <linux/of.h>
 
+#include <asm/irq.h>
+
 /*
  * Device Tree IRQ specifier translation function which works with one or
  * two cell bindings. First cell value maps directly to the hwirq number.
@@ -95,8 +97,10 @@ static int __init xtensa_pic_init(struct device_node *np,
 		struct device_node *interrupt_parent)
 {
 	struct irq_domain *root_domain =
-		irq_domain_create_linear(of_fwnode_handle(np), NR_IRQS, &xtensa_irq_domain_ops,
-				&xtensa_irq_chip);
+		irq_domain_create_linear(of_fwnode_handle(np),
+					 XTENSA_NR_IRQS,
+					 &xtensa_irq_domain_ops,
+					 &xtensa_irq_chip);
 	irq_set_default_domain(root_domain);
 	return 0;
 }

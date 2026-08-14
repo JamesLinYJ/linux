@@ -26673,6 +26673,7 @@ F:	Documentation/devicetree/bindings/interrupt-controller/esp,esp32s3-intc.yaml
 F:	Documentation/devicetree/bindings/serial/esp,esp32s3-usb-serial-jtag.yaml
 F:	Documentation/devicetree/bindings/xtensa/
 F:	arch/xtensa/
+F:	drivers/irqchip/irq-esp32s3.c
 F:	drivers/irqchip/irq-xtensa-*
 F:	drivers/tty/serial/esp32s3-usb-earlycon.c
 

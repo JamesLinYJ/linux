@@ -43,6 +43,15 @@
 		};
 	};
 
+	intc: interrupt-controller@600c2000 {
+		compatible = "esp,esp32s3-intc";
+		reg = <0x600c2000 0x1000>;
+		interrupt-parent = <&pic>;
+		interrupts = <2 0>;
+		interrupt-controller;
+		#interrupt-cells = <2>;
+	};
+
 	usb_serial_jtag: serial@60038000 {
 		compatible = "esp,esp32s3-usb-serial-jtag";
 		reg = <0x60038000 0x1000>;

@@ -381,6 +381,14 @@ config VERSATILE_FPGA_IRQ_NR
        default 4
        depends on VERSATILE_FPGA_IRQ
 
+config ESP32S3_INTC
+	bool
+	default y if XTENSA_PLATFORM_ESP32S3
+	depends on OF
+	select IRQ_DOMAIN
+	help
+	  Support the ESP32-S3 peripheral interrupt matrix on CPU0.
+
 config XTENSA_MX
 	bool
 	select IRQ_DOMAIN
