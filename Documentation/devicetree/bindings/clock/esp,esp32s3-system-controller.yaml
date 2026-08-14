@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/esp,esp32s3-system-controller.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Espressif ESP32-S3 system clock and reset controller
+
+maintainers:
+  - ESP32-S3 Linux project <noreply@example.invalid>
+
+properties:
+  compatible:
+    const: esp,esp32s3-system-controller
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+  '#clock-cells':
+    const: 1
+
+  '#reset-cells':
+    const: 1
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - '#clock-cells'
+  - '#reset-cells'
+
+additionalProperties: false
+
+examples:
+  - |
+    clock-controller@600c0000 {
+        compatible = "esp,esp32s3-system-controller";
+        reg = <0x600c0000 0x1000>;
+        clocks = <&xtal>;
+        #clock-cells = <1>;
+        #reset-cells = <1>;
+    };
