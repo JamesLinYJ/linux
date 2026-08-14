@@ -14,6 +14,7 @@
  */
 
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/device.h>
 #include <linux/dmaengine.h>
 #include <linux/module.h>
@@ -36,6 +37,8 @@ struct i2s_esp32s3 {
 	struct clk *gate;
 	struct clk *source;
 	unsigned long source_rate;
+	unsigned long mclk_rate;
+	struct clk_hw mclk_hw;
 };
 
 static inline void i2s_esp32s3_writel(struct i2s_esp32s3 *i2s,
@@ -79,11 +82,11 @@ static int i2s_esp32s3_update(struct i2s_esp32s3 *i2s, unsigned int conf)
 static void i2s_esp32s3_conf1_configure(struct i2s_esp32s3 *i2s,
 					unsigned int conf1,
 					unsigned int bits_per_sample,
-					unsigned int frame_bits)
+					unsigned int bck_div)
 {
 	u32 reg = 0;
 
-	reg |= (frame_bits - 1) << I2S_ESP32S3_CONF1_BCK_DIV_SHIFT;
+	reg |= (bck_div - 1) << I2S_ESP32S3_CONF1_BCK_DIV_SHIFT;
 	reg |= (bits_per_sample - 1) << I2S_ESP32S3_CONF1_BITS_MOD_SHIFT;
 	reg |= I2S_ESP32S3_CONF1_MSB_SHIFT; /* Phillips standard */
 	i2s_esp32s3_writel(i2s, conf1, reg);
@@ -117,6 +120,21 @@ static int i2s_esp32s3_configure_clkm(struct i2s_esp32s3 *i2s,
 	return 0;
 }
 
+/* The codec MCLK output rate, exposed as a clock provider for the
+ * ES8311/ES7210 codecs (see the device tree "mclk" phandle).
+ */
+static unsigned long i2s_esp32s3_mclk_recalc(struct clk_hw *hw,
+					     unsigned long parent_rate)
+{
+	struct i2s_esp32s3 *i2s = container_of(hw, struct i2s_esp32s3, mclk_hw);
+
+	return i2s->mclk_rate;
+}
+
+static const struct clk_ops i2s_esp32s3_mclk_ops = {
+	.recalc_rate = i2s_esp32s3_mclk_recalc,
+};
+
 static int i2s_esp32s3_hw_params(struct snd_pcm_substream *substream,
 				 struct snd_pcm_hw_params *params,
 				 struct snd_soc_dai *dai)
@@ -125,17 +143,24 @@ static int i2s_esp32s3_hw_params(struct snd_pcm_substream *substream,
 	struct i2s_esp32s3_div div;
 	unsigned int bits = params_physical_width(params);
 	unsigned int frame_bits = params_channels(params) * bits;
+	unsigned int bck_div;
 	unsigned int conf, conf1, clkm_conf, clkm_div_conf;
 	int ret;
 
-	if (frame_bits > I2S_ESP32S3_CONF1_BCK_DIV_MASK >>
-			  I2S_ESP32S3_CONF1_BCK_DIV_SHIFT)
+	/* MCLK = 256x the sample rate; BCLK = MCLK / (channels * bits) */
+	if (I2S_ESP32S3_MCLK_MULTIPLE % frame_bits)
+		return -EINVAL;
+	bck_div = I2S_ESP32S3_MCLK_MULTIPLE / frame_bits;
+	if (bck_div < 2 || bck_div >
+	    (I2S_ESP32S3_CONF1_BCK_DIV_MASK >> I2S_ESP32S3_CONF1_BCK_DIV_SHIFT) + 1)
 		return -EINVAL;
 
 	ret = i2s_esp32s3_calc_div(i2s->source_rate, params_rate(params),
-				   frame_bits, &div);
+				   I2S_ESP32S3_MCLK_MULTIPLE, &div);
 	if (ret)
 		return ret;
+
+	i2s->mclk_rate = params_rate(params) * I2S_ESP32S3_MCLK_MULTIPLE;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		conf = I2S_ESP32S3_TX_CONF;
@@ -149,8 +174,11 @@ static int i2s_esp32s3_hw_params(struct snd_pcm_substream *substream,
 		clkm_div_conf = I2S_ESP32S3_RX_CLKM_DIV_CONF;
 	}
 
-	i2s_esp32s3_conf1_configure(i2s, conf1, bits, frame_bits);
+	i2s_esp32s3_conf1_configure(i2s, conf1, bits, bck_div);
 	i2s_esp32s3_configure_clkm(i2s, clkm_conf, clkm_div_conf, &div);
+
+	/* MCLK_OUT follows the TX module clock (mclk_sel = 0) */
+	i2s_esp32s3_write_mask(i2s, I2S_ESP32S3_RX_CLKM_CONF, BIT(30), 0);
 
 	/* Little-endian data, master mode, fifo reset */
 	i2s_esp32s3_write_mask(i2s, conf, I2S_ESP32S3_CONF_BIG_ENDIAN |
@@ -323,6 +351,18 @@ static int i2s_esp32s3_probe(struct platform_device *pdev)
 				     "invalid I2S source clock rate\n");
 
 	dev_set_drvdata(dev, i2s);
+
+	i2s->mclk_hw.init = &(struct clk_init_data){
+		.name = "mclk",
+		.ops = &i2s_esp32s3_mclk_ops,
+	};
+	ret = devm_clk_hw_register(dev, &i2s->mclk_hw);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to register MCLK clock\n");
+	ret = devm_of_clk_add_hw_provider(dev, of_clk_hw_simple_get,
+					  &i2s->mclk_hw);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to register MCLK provider\n");
 
 	ret = devm_snd_soc_register_component(dev, &i2s_esp32s3_component,
 					      &i2s_esp32s3_dai, 1);

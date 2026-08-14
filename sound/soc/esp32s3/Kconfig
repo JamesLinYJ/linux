@@ -22,3 +22,37 @@ config SND_SOC_ESP32S3_I2S_KUNIT_TEST
 	  not exercise any register access. If unsure, say N and run the
 	  tests through the project's minimal UML KUnit configuration
 	  instead.
+
+config SND_SOC_ES7210
+	tristate "Everest ES7210 4-ch ADC codec support"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y here to enable the Everest ES7210 4-channel ADC codec
+	  driver. The Waveshare ESP32-S3-Touch-LCD-3.49 V2 wires it to
+	  I2C0 address 0x40 and the ESP32-S3 I2S0 controller.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called es7210.
+
+config SND_SOC_ES7210_KUNIT_TEST
+	tristate "KUnit tests for the ES7210 codec" if !KUNIT_ALL_TESTS
+	depends on KUNIT && SND_SOC_ES7210
+	default KUNIT_ALL_TESTS
+	help
+	  Build pure-logic tests for the ES7210 clock coefficient table
+	  transcription and lookup. These tests run without ES7210
+	  hardware and do not exercise the I2C transfer path. If unsure,
+	  say N and run the tests through the project's minimal UML KUnit
+	  configuration instead.
+
+config SND_SOC_ESP32S3_AUDIO
+	tristate "Waveshare ESP32-S3-Touch-LCD-3.49 V2 ASoC machine driver"
+	depends on SND_SOC_ESP32S3_I2S
+	help
+	  Say Y here to enable the ASoC machine driver for the Waveshare
+	  ESP32-S3-Touch-LCD-3.49 V2 audio chain (ES8311 playback, ES7210
+	  capture, NS4150B amplifier enable on TCA9554 EXIO7).
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called esp32s3-audio.

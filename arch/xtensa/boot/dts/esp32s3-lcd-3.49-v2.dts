@@ -158,6 +158,7 @@
 		pinctrl-0 = <&i2s0_mclk_pin &i2s0_bck_pin &i2s0_ws_pin
 			     &i2s0_dout_pin &i2s0_din_pin>;
 		#sound-dai-cells = <0>;
+		#clock-cells = <0>;
 
 		i2s0_mclk_pin: i2s0-mclk-pin {
 			pins = "gpio7";
@@ -268,6 +269,11 @@
 		default-brightness-level = <0>;
 	};
 
+	audio {
+		compatible = "waveshare,esp32s3-audio";
+		pa-gpios = <&tca9554 7 GPIO_ACTIVE_HIGH>;
+	};
+
 	i2c0: i2c@60013000 {
 		compatible = "esp,esp32s3-i2c";
 		reg = <0x60013000 0x1000>;
@@ -309,6 +315,22 @@
 			interrupt-parent = <&tca9554>;
 			interrupts = <2 IRQ_TYPE_EDGE_FALLING>,
 				     <3 IRQ_TYPE_EDGE_FALLING>;
+		};
+
+		es8311: codec@18 {
+			compatible = "everest,es8311";
+			reg = <0x18>;
+			clocks = <&i2s0>;
+			clock-names = "mclk";
+			#sound-dai-cells = <0>;
+		};
+
+		es7210: codec@40 {
+			compatible = "everest,es7210";
+			reg = <0x40>;
+			clocks = <&i2s0>;
+			clock-names = "mclk";
+			#sound-dai-cells = <0>;
 		};
 	};
 

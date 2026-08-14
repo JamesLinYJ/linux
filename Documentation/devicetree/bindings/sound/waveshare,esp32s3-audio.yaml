@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: GPL-2.0-only
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/sound/waveshare,esp32s3-audio.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Waveshare ESP32-S3-Touch-LCD-3.49 V2 audio machine
+
+maintainers:
+  - ESP32-S3 Linux project <noreply@example.invalid>
+
+description: |
+  ASoC machine driver for the Waveshare ESP32-S3-Touch-LCD-3.49 V2
+  audio chain: ES8311 codec playback and ES7210 ADC capture over the
+  ESP32-S3 I2S0 controller, plus the NS4150B amplifier enable line.
+
+properties:
+  compatible:
+    const: waveshare,esp32s3-audio
+
+  pa-gpios:
+    maxItems: 1
+    description: NS4150B amplifier mode/enable line (TCA9554 EXIO7)
+
+required:
+  - compatible
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    audio {
+        compatible = "waveshare,esp32s3-audio";
+        pa-gpios = <&tca9554 7 0>;
+    };
+...

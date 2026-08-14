@@ -65,6 +65,9 @@
 /* Rational approximation denominator for the fractional divider */
 #define I2S_ESP32S3_DIV_DENOM		1000
 
+/* Codec MCLK multiple: 256x the sample rate (ES8311/ES7210 tables) */
+#define I2S_ESP32S3_MCLK_MULTIPLE	256
+
 struct i2s_esp32s3_div {
 	unsigned int integer;
 	unsigned int numerator;
@@ -76,26 +79,31 @@ struct i2s_esp32s3_div {
 };
 
 /*
- * f_out = f_in / (N + num/den). The fractional part num/den is encoded
- * into the hardware coefficients (x, y, z, yn1) exactly as the official
- * i2s_ll_tx_set_mclk() does. num is rounded to the nearest 1/1000, which
- * keeps the sample clock within 0.05% for the supported rates.
+ * f_mclk = f_in / (N + num/den); the board codecs (ES8311/ES7210) run
+ * from a 256x MCLK. The fractional part num/den is encoded into the
+ * hardware coefficients (x, y, z, yn1) exactly as the official
+ * i2s_ll_tx_set_mclk() does. num is rounded to the nearest 1/1000,
+ * which keeps the MCLK within 0.05% for the supported rates.
  */
 static inline int i2s_esp32s3_calc_div(unsigned long source_rate,
 				       unsigned int rate,
-				       unsigned int frame_bits,
+				       unsigned int mclk_multiple,
 				       struct i2s_esp32s3_div *div)
 {
 	unsigned long long total;
 	unsigned int integer, num, den = I2S_ESP32S3_DIV_DENOM;
+	unsigned int mclk;
 
-	if (!rate || !frame_bits || source_rate < rate * frame_bits)
+	if (!rate || !mclk_multiple)
 		return -EINVAL;
 
-	/* total = source_rate * den / (rate * frame_bits) */
+	mclk = rate * mclk_multiple;
+	if (source_rate < mclk)
+		return -EINVAL;
+
+	/* total = source_rate * den / mclk */
 	total = (unsigned long long)source_rate * den;
-	total = DIV_ROUND_CLOSEST_ULL(total, (unsigned long long)rate *
-				      frame_bits);
+	total = DIV_ROUND_CLOSEST_ULL(total, mclk);
 	if (total < den || total > 0x100 * den)
 		return -EINVAL;
 

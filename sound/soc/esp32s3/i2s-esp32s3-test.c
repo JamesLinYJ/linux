@@ -13,10 +13,11 @@ static void i2s_esp32s3_div_exact_test(struct kunit *test)
 	struct i2s_esp32s3_div div;
 	int ret;
 
-	/* 160 MHz / (50 kHz * 64) = 50 exactly */
-	ret = i2s_esp32s3_calc_div(160000000, 50000, 64, &div);
+	/* 160 MHz / (62.5 kHz * 256) = 10 exactly */
+	ret = i2s_esp32s3_calc_div(160000000, 62500,
+				   I2S_ESP32S3_MCLK_MULTIPLE, &div);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, div.integer, 50);
+	KUNIT_EXPECT_EQ(test, div.integer, 10);
 	KUNIT_EXPECT_EQ(test, div.numerator, 0);
 	KUNIT_EXPECT_EQ(test, div.x, 0);
 	KUNIT_EXPECT_EQ(test, div.y, 0);
@@ -30,21 +31,22 @@ static void i2s_esp32s3_div_fraction_test(struct kunit *test)
 	int ret;
 
 	/*
-	 * 160 MHz / (48 kHz * 64) = 52.0833... -> integer 52,
-	 * numerator 83/1000. The hardware coefficients must reconstruct
+	 * 160 MHz / (48 kHz * 256) = 13.0208... -> integer 13,
+	 * numerator 21/1000. The hardware coefficients must reconstruct
 	 * the same fraction per the official encoding:
-	 *   yn1 = (83*2 > 1000) = 0, z = 83,
-	 *   x = 1000/83 - 1 = 11, y = 1000 % 83 = 4.
+	 *   yn1 = (21*2 > 1000) = 0, z = 21,
+	 *   x = 1000/21 - 1 = 46, y = 1000 % 21 = 13.
 	 */
-	ret = i2s_esp32s3_calc_div(160000000, 48000, 64, &div);
+	ret = i2s_esp32s3_calc_div(160000000, 48000,
+				   I2S_ESP32S3_MCLK_MULTIPLE, &div);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, div.integer, 52);
-	KUNIT_EXPECT_EQ(test, div.numerator, 83);
+	KUNIT_EXPECT_EQ(test, div.integer, 13);
+	KUNIT_EXPECT_EQ(test, div.numerator, 21);
 	KUNIT_EXPECT_EQ(test, div.denominator, 1000);
 	KUNIT_EXPECT_EQ(test, div.yn1, 0);
-	KUNIT_EXPECT_EQ(test, div.z, 83);
-	KUNIT_EXPECT_EQ(test, div.x, 11);
-	KUNIT_EXPECT_EQ(test, div.y, 4);
+	KUNIT_EXPECT_EQ(test, div.z, 21);
+	KUNIT_EXPECT_EQ(test, div.x, 46);
+	KUNIT_EXPECT_EQ(test, div.y, 13);
 }
 
 static void i2s_esp32s3_div_large_fraction_test(struct kunit *test)
@@ -52,29 +54,32 @@ static void i2s_esp32s3_div_large_fraction_test(struct kunit *test)
 	struct i2s_esp32s3_div div;
 	int ret;
 
-	/* 160 MHz / (44.1 kHz * 64) = 56.689... -> integer 56, 689/1000 */
-	ret = i2s_esp32s3_calc_div(160000000, 44100, 64, &div);
+	/*
+	 * 160 MHz / (44.1 kHz * 256) = 14.1723... -> integer 14,
+	 * numerator 172/1000; num*2 <= den so yn1 = 0.
+	 */
+	ret = i2s_esp32s3_calc_div(160000000, 44100,
+				   I2S_ESP32S3_MCLK_MULTIPLE, &div);
 	KUNIT_EXPECT_EQ(test, ret, 0);
-	KUNIT_EXPECT_EQ(test, div.integer, 56);
-	KUNIT_EXPECT_EQ(test, div.numerator, 689);
-	/* num*2 > den: yn1 = 1, z = den - num, x = den/z - 1, y = den%z */
-	KUNIT_EXPECT_EQ(test, div.yn1, 1);
-	KUNIT_EXPECT_EQ(test, div.z, 311);
-	KUNIT_EXPECT_EQ(test, div.x, 2);
-	KUNIT_EXPECT_EQ(test, div.y, 67);
+	KUNIT_EXPECT_EQ(test, div.integer, 14);
+	KUNIT_EXPECT_EQ(test, div.numerator, 172);
+	KUNIT_EXPECT_EQ(test, div.yn1, 0);
+	KUNIT_EXPECT_EQ(test, div.z, 172);
+	KUNIT_EXPECT_EQ(test, div.x, 4);
+	KUNIT_EXPECT_EQ(test, div.y, 140);
 }
 
 static void i2s_esp32s3_div_invalid_test(struct kunit *test)
 {
 	struct i2s_esp32s3_div div;
 
-	KUNIT_EXPECT_EQ(test, i2s_esp32s3_calc_div(160000000, 0, 64, &div),
-			-EINVAL);
-	KUNIT_EXPECT_EQ(test, i2s_esp32s3_calc_div(160000000, 48000, 0, &div),
-			-EINVAL);
-	/* Source slower than the bit clock cannot divide down */
-	KUNIT_EXPECT_EQ(test, i2s_esp32s3_calc_div(1000000, 48000, 64, &div),
-			-EINVAL);
+	KUNIT_EXPECT_EQ(test, i2s_esp32s3_calc_div(160000000, 0,
+			I2S_ESP32S3_MCLK_MULTIPLE, &div), -EINVAL);
+	KUNIT_EXPECT_EQ(test, i2s_esp32s3_calc_div(160000000, 48000, 0,
+			&div), -EINVAL);
+	/* Source slower than the MCLK cannot divide down */
+	KUNIT_EXPECT_EQ(test, i2s_esp32s3_calc_div(1000000, 48000,
+			I2S_ESP32S3_MCLK_MULTIPLE, &div), -EINVAL);
 }
 
 static struct kunit_case i2s_esp32s3_test_cases[] = {

@@ -52,6 +52,10 @@ properties:
   "#sound-dai-cells":
     const: 0
 
+  "#clock-cells":
+    const: 0
+    description: MCLK output consumed by the board codecs
+
 required:
   - compatible
   - reg
