@@ -4,6 +4,8 @@
 #include <dt-bindings/interrupt-controller/irq.h>
 #include <dt-bindings/clock/esp32s3.h>
 #include <dt-bindings/dma/esp32s3-gdma.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pwm/pwm.h>
 #include <dt-bindings/reset/esp32s3.h>
 
 / {
@@ -116,6 +118,25 @@
 		dma-channels = <10>;
 		dma-requests = <10>;
 		#dma-cells = <2>;
+	};
+
+	ledc: pwm@60019000 {
+		compatible = "esp,esp32s3-ledc";
+		reg = <0x60019000 0x1000>;
+		clocks = <&syscon ESP32S3_CLK_LEDC>;
+		resets = <&syscon ESP32S3_RST_LEDC>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&ledc_ls0_pin>;
+		#pwm-cells = <3>;
+	};
+
+	lcd_backlight: backlight {
+		compatible = "pwm-backlight";
+		pwms = <&ledc 0 50000 PWM_POLARITY_INVERTED>;
+		enable-gpios = <&tca9554 1 GPIO_ACTIVE_HIGH>;
+		brightness-levels = <0 255>;
+		num-interpolated-steps = <255>;
+		default-brightness-level = <0>;
 	};
 
 	i2c0: i2c@60013000 {
@@ -267,6 +288,12 @@
 			function = "spi3-hd";
 			drive-push-pull;
 			input-enable;
+		};
+
+		ledc_ls0_pin: ledc-ls0-pin {
+			pins = "gpio42";
+			function = "ledc-ls0";
+			drive-push-pull;
 		};
 	};
 
