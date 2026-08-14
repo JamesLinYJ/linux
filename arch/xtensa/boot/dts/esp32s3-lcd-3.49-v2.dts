@@ -21,6 +21,7 @@
 		i2c1 = &i2c1;
 		serial0 = &usb_serial_jtag;
 		spi0 = &spi3;
+		spi1 = &spi2;
 	};
 
 	chosen {
@@ -77,6 +78,32 @@
 		clocks = <&xtal>;
 		#clock-cells = <1>;
 		#reset-cells = <1>;
+	};
+
+	spi2: spi@60024000 {
+		compatible = "esp,esp32s3-spi";
+		reg = <0x60024000 0x1000>;
+		clocks = <&syscon ESP32S3_CLK_SPI2>;
+		resets = <&syscon ESP32S3_RST_SPI2>;
+		interrupt-parent = <&intc>;
+		interrupts = <21 IRQ_TYPE_LEVEL_HIGH>;
+		dmas = <&gdma ESP32S3_GDMA_TRIG_SPI2 ESP32S3_GDMA_DIR_RX>,
+		       <&gdma ESP32S3_GDMA_TRIG_SPI2 ESP32S3_GDMA_DIR_TX>;
+		dma-names = "rx", "tx";
+		pinctrl-names = "default";
+		pinctrl-0 = <&spi2_cs0_pin &spi2_clk_pin &spi2_d_pin
+			     &spi2_q_pin>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		mmc@0 {
+			compatible = "mmc-spi-slot";
+			reg = <0>;
+			spi-max-frequency = <20000000>;
+			voltage-ranges = <3300 3300>;
+			broken-cd;
+			disable-wp;
+		};
 	};
 
 	spi3: spi@60025000 {
@@ -247,6 +274,32 @@
 			function = "i2c1-sda";
 			bias-pull-up;
 			drive-open-drain;
+			input-enable;
+		};
+
+		spi2_cs0_pin: spi2-cs0-pin {
+			pins = "gpio38";
+			function = "spi2-cs0";
+			drive-push-pull;
+		};
+
+		spi2_clk_pin: spi2-clk-pin {
+			pins = "gpio41";
+			function = "spi2-clk";
+			drive-push-pull;
+		};
+
+		spi2_d_pin: spi2-d-pin {
+			pins = "gpio39";
+			function = "spi2-d";
+			drive-push-pull;
+			input-enable;
+		};
+
+		spi2_q_pin: spi2-q-pin {
+			pins = "gpio40";
+			function = "spi2-q";
+			drive-push-pull;
 			input-enable;
 		};
 
