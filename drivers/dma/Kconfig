@@ -147,6 +147,17 @@ config DMA_BCM2835
 	select DMA_ENGINE
 	select DMA_VIRTUAL_CHANNELS
 
+config ESP32S3_GDMA
+	tristate "Espressif ESP32-S3 general DMA support"
+	depends on XTENSA_PLATFORM_ESP32S3 || COMPILE_TEST
+	depends on OF && HAS_IOMEM
+	select DMA_ENGINE
+	select DMA_VIRTUAL_CHANNELS
+	help
+	  Enable the general-purpose DMA controller found in the Espressif
+	  ESP32-S3. The controller supplies independently routed receive and
+	  transmit channels to on-chip peripherals such as SPI and I2S.
+
 config DMA_JZ4780
 	tristate "JZ4780 DMA support"
 	depends on MIPS || COMPILE_TEST
