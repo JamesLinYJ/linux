@@ -26669,6 +26669,7 @@ M:	Chris Zankel <chris@zankel.net>
 M:	Max Filippov <jcmvbkbc@gmail.com>
 S:	Maintained
 T:	git https://github.com/jcmvbkbc/linux-xtensa.git
+F:	Documentation/devicetree/bindings/serial/esp,esp32s3-usb-serial-jtag.yaml
 F:	Documentation/devicetree/bindings/xtensa/
 F:	arch/xtensa/
 F:	drivers/irqchip/irq-xtensa-*
