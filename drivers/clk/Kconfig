@@ -544,6 +544,17 @@ source "drivers/clk/ti/Kconfig"
 source "drivers/clk/uniphier/Kconfig"
 source "drivers/clk/visconti/Kconfig"
 source "drivers/clk/x86/Kconfig"
+
+config COMMON_CLK_ESP32S3
+	bool "Clock and reset controller for Espressif ESP32-S3"
+	depends on XTENSA_PLATFORM_ESP32S3 || COMPILE_TEST
+	depends on OF
+	select RESET_CONTROLLER
+	help
+	  Support peripheral clock gates and reset lines in the ESP32-S3
+	  system controller. The provider is extended as peripheral drivers
+	  gain upstream-style clock and reset consumers. Select this for
+	  native ESP32-S3 platform support.
 source "drivers/clk/xilinx/Kconfig"
 source "drivers/clk/zynqmp/Kconfig"
 
