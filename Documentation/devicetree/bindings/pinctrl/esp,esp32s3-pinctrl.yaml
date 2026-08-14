@@ -66,6 +66,14 @@ patternProperties:
           - i2c0-sda
           - i2c1-scl
           - i2c1-sda
+          - ledc-ls0
+          - ledc-ls1
+          - ledc-ls2
+          - ledc-ls3
+          - ledc-ls4
+          - ledc-ls5
+          - ledc-ls6
+          - ledc-ls7
           - spi3-clk
           - spi3-cs0
           - spi3-d
