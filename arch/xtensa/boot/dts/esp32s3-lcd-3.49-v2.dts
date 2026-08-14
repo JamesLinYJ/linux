@@ -227,6 +227,14 @@
 			interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
 			quartz-load-femtofarads = <12500>;
 		};
+
+		imu@6a {
+			compatible = "qst,qmi8658c";
+			reg = <0x6a>;
+			interrupt-parent = <&tca9554>;
+			interrupts = <2 IRQ_TYPE_EDGE_FALLING>,
+				     <3 IRQ_TYPE_EDGE_FALLING>;
+		};
 	};
 
 	i2c1: i2c@60027000 {

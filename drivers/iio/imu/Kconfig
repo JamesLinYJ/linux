@@ -142,3 +142,28 @@ config IIO_ADIS_LIB_BUFFER
 	help
 	  A set of buffer helper functions for the Analog Devices ADIS* device
 	  family.
+
+config QMI8658C
+	tristate "QST QMI8658C 6-axis IMU (accelerometer + gyroscope)"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  Say Y here to build support for the QST QMI8658C 6-axis inertial
+	  measurement unit connected over I2C. The driver exposes raw
+	  acceleration and angular velocity with per-axis scale through
+	  the IIO framework.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called qmi8658c.
+
+config QMI8658C_KUNIT_TEST
+	tristate "KUnit tests for the QMI8658C IMU" if !KUNIT_ALL_TESTS
+	depends on KUNIT && QMI8658C
+	default KUNIT_ALL_TESTS
+	help
+	  Build pure-logic tests for the QMI8658C register helpers: the
+	  big-endian data burst decoder, scale arithmetic and control
+	  register value builders. These tests run without QMI8658C
+	  hardware and do not exercise the I2C transfer path. If unsure,
+	  say N and run the tests through the project's minimal UML KUnit
+	  configuration instead.

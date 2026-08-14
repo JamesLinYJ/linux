@@ -35,3 +35,6 @@ obj-$(CONFIG_SMI240) += smi240.o
 obj-y += smi330/
 obj-y += st_lsm6dsx/
 obj-y += st_lsm9ds0/
+
+obj-$(CONFIG_QMI8658C) += qmi8658c.o
+obj-$(CONFIG_QMI8658C_KUNIT_TEST) += qmi8658c-test.o
