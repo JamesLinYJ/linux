@@ -26,9 +26,10 @@ struct esp32s3_syscon {
 	struct reset_controller_dev reset;
 };
 
-static const u8 esp32s3_i2c_bits[] = {
+static const u8 esp32s3_peripheral_bits[] = {
 	[ESP32S3_RST_I2C0] = 7,
 	[ESP32S3_RST_I2C1] = 18,
+	[ESP32S3_RST_SPI3] = 16,
 };
 
 static int esp32s3_reset_update(struct reset_controller_dev *rcdev,
@@ -39,15 +40,15 @@ static int esp32s3_reset_update(struct reset_controller_dev *rcdev,
 	unsigned long flags;
 	u32 value;
 
-	if (id >= ARRAY_SIZE(esp32s3_i2c_bits))
+	if (id >= ARRAY_SIZE(esp32s3_peripheral_bits))
 		return -EINVAL;
 
 	spin_lock_irqsave(&syscon->lock, flags);
 	value = readl_relaxed(syscon->base + ESP32S3_SYS_PERIP_RST_EN0);
 	if (assert)
-		value |= BIT(esp32s3_i2c_bits[id]);
+		value |= BIT(esp32s3_peripheral_bits[id]);
 	else
-		value &= ~BIT(esp32s3_i2c_bits[id]);
+		value &= ~BIT(esp32s3_peripheral_bits[id]);
 	writel_relaxed(value, syscon->base + ESP32S3_SYS_PERIP_RST_EN0);
 	readl_relaxed(syscon->base + ESP32S3_SYS_PERIP_RST_EN0);
 	spin_unlock_irqrestore(&syscon->lock, flags);
@@ -72,10 +73,10 @@ static int esp32s3_reset_status(struct reset_controller_dev *rcdev,
 	struct esp32s3_syscon *syscon =
 		container_of(rcdev, struct esp32s3_syscon, reset);
 
-	if (id >= ARRAY_SIZE(esp32s3_i2c_bits))
+	if (id >= ARRAY_SIZE(esp32s3_peripheral_bits))
 		return -EINVAL;
 	return !!(readl_relaxed(syscon->base + ESP32S3_SYS_PERIP_RST_EN0) &
-		  BIT(esp32s3_i2c_bits[id]));
+		  BIT(esp32s3_peripheral_bits[id]));
 }
 
 static const struct reset_control_ops esp32s3_reset_ops = {
@@ -94,12 +95,30 @@ static struct clk_hw *esp32s3_register_gate(struct device *dev,
 						     bit, 0, lock);
 }
 
+static struct clk_hw *
+esp32s3_register_peripheral_gate(struct device *dev,
+				 struct esp32s3_syscon *syscon,
+				 const char *name, unsigned int id,
+				 struct clk_hw *pll80,
+				 const struct clk_parent_data *parent)
+{
+	void __iomem *reg = syscon->base + ESP32S3_SYS_PERIP_CLK_EN0;
+	u8 bit = esp32s3_peripheral_bits[id];
+
+	if (id == ESP32S3_CLK_SPI3)
+		return devm_clk_hw_register_gate_parent_hw(dev, name, pll80, 0,
+							reg, bit, 0,
+							&syscon->lock);
+	return esp32s3_register_gate(dev, name, parent, reg, bit, &syscon->lock);
+}
+
 static int esp32s3_syscon_probe(struct platform_device *pdev)
 {
-	static const char * const names[] = { "i2c0", "i2c1" };
+	static const char * const names[] = { "i2c0", "i2c1", "spi3" };
 	struct device *dev = &pdev->dev;
 	struct esp32s3_syscon *syscon;
 	struct clk_parent_data parent = { .index = 0 };
+	struct clk_hw *pll80;
 	struct clk_hw *hw;
 	size_t clk_data_size;
 	unsigned int i;
@@ -118,11 +137,15 @@ static int esp32s3_syscon_probe(struct platform_device *pdev)
 	if (!syscon->clk_data)
 		return -ENOMEM;
 	syscon->clk_data->num = ESP32S3_CLK_NUM;
+	pll80 = devm_clk_hw_register_fixed_factor_index(dev, "pll80", 0, 0,
+							2, 1);
+	if (IS_ERR(pll80))
+		return dev_err_probe(dev, PTR_ERR(pll80),
+				     "failed to register PLL80 clock\n");
 
 	for (i = 0; i < ESP32S3_CLK_NUM; i++) {
-		hw = esp32s3_register_gate(dev, names[i], &parent,
-					   syscon->base + ESP32S3_SYS_PERIP_CLK_EN0,
-					   esp32s3_i2c_bits[i], &syscon->lock);
+		hw = esp32s3_register_peripheral_gate(dev, syscon, names[i], i,
+						      pll80, &parent);
 		if (IS_ERR(hw))
 			return dev_err_probe(dev,
 				PTR_ERR(hw),
