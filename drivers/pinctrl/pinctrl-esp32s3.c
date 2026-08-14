@@ -61,6 +61,9 @@
 
 #define ESP32S3_GPIO_OUT_SEL		GENMASK(8, 0)
 #define ESP32S3_GPIO_MATRIX_GPIO_OUT	256
+#define ESP32S3_GPIO_IN_SEL_BASE		0x154
+#define ESP32S3_GPIO_IN_SEL		GENMASK(5, 0)
+#define ESP32S3_GPIO_IN_SEL_MATRIX	BIT(7)
 
 #define ESP32S3_IOMUX_PIN_BASE		0x004
 #define ESP32S3_IOMUX_PIN_FUNC		GENMASK(14, 12)
@@ -77,6 +80,19 @@ struct esp32s3_pinctrl {
 	struct pinctrl_dev *pctldev;
 	struct pinctrl_desc pctldesc;
 	struct gpio_chip gpio;
+};
+
+struct esp32s3_pin_function {
+	const char *name;
+	u16 signal;
+};
+
+static const struct esp32s3_pin_function esp32s3_pin_functions[] = {
+	{ "gpio", ESP32S3_GPIO_MATRIX_GPIO_OUT },
+	{ "i2c0-scl", 89 },
+	{ "i2c0-sda", 90 },
+	{ "i2c1-scl", 91 },
+	{ "i2c1-sda", 92 },
 };
 
 static bool esp32s3_gpio_pin_valid(unsigned int pin)
@@ -158,6 +174,31 @@ static void esp32s3_select_gpio(struct esp32s3_pinctrl *pctl,
 			    ESP32S3_GPIO_MATRIX_GPIO_OUT);
 }
 
+static void esp32s3_select_matrix_signal(struct esp32s3_pinctrl *pctl,
+					 unsigned int pin, unsigned int signal)
+{
+	esp32s3_gpio_set_value(pctl, pin, true);
+	esp32s3_update_bits(pctl, esp32s3_iomux_pin_reg(pctl, pin),
+			    ESP32S3_IOMUX_PIN_FUNC |
+			    ESP32S3_IOMUX_PIN_INPUT_ENABLE,
+			    FIELD_PREP(ESP32S3_IOMUX_PIN_FUNC,
+				       ESP32S3_IOMUX_PIN_FUNC_GPIO) |
+			    ESP32S3_IOMUX_PIN_INPUT_ENABLE);
+	esp32s3_update_bits(pctl, esp32s3_gpio_pin_reg(pctl, pin),
+			    ESP32S3_GPIO_PIN_PAD_DRIVER,
+			    ESP32S3_GPIO_PIN_PAD_DRIVER);
+	esp32s3_update_bits(pctl,
+			    pctl->gpio_base + ESP32S3_GPIO_OUT_SEL_BASE +
+			    pin * sizeof(u32), GENMASK(11, 0), signal);
+	esp32s3_update_bits(pctl,
+			    pctl->gpio_base + ESP32S3_GPIO_IN_SEL_BASE +
+			    signal * sizeof(u32),
+			    ESP32S3_GPIO_IN_SEL | ESP32S3_GPIO_IN_SEL_MATRIX,
+			    FIELD_PREP(ESP32S3_GPIO_IN_SEL, pin) |
+			    ESP32S3_GPIO_IN_SEL_MATRIX);
+	esp32s3_gpio_set_output_enable(pctl, pin, true);
+}
+
 static const struct pinctrl_ops esp32s3_pinctrl_ops = {
 	.get_groups_count = pinctrl_generic_get_group_count,
 	.get_group_name = pinctrl_generic_get_group_name,
@@ -171,9 +212,14 @@ static int esp32s3_pinmux_set(struct pinctrl_dev *pctldev,
 {
 	struct esp32s3_pinctrl *pctl = pinctrl_dev_get_drvdata(pctldev);
 
-	if (function || !esp32s3_gpio_pin_valid(group))
+	if (function >= ARRAY_SIZE(esp32s3_pin_functions) ||
+	    !esp32s3_gpio_pin_valid(group))
 		return -EINVAL;
-	esp32s3_select_gpio(pctl, group);
+	if (!function)
+		esp32s3_select_gpio(pctl, group);
+	else
+		esp32s3_select_matrix_signal(pctl, group,
+					     esp32s3_pin_functions[function].signal);
 	return 0;
 }
 
@@ -571,11 +617,15 @@ static int esp32s3_pinctrl_probe(struct platform_device *pdev)
 			return dev_err_probe(&pdev->dev, ret,
 					     "failed to add pin group\n");
 	}
-	ret = pinmux_generic_add_function(pctl->pctldev, "gpio", group_names,
-					  ESP32S3_GPIO_NR_PINS, pctl);
-	if (ret < 0)
-		return dev_err_probe(&pdev->dev, ret,
-				     "failed to add GPIO pinmux function\n");
+	for (pin = 0; pin < ARRAY_SIZE(esp32s3_pin_functions); pin++) {
+		ret = pinmux_generic_add_function(pctl->pctldev,
+						  esp32s3_pin_functions[pin].name,
+						  group_names,
+						  ESP32S3_GPIO_NR_PINS, pctl);
+		if (ret < 0)
+			return dev_err_probe(&pdev->dev, ret,
+					     "failed to add pinmux function\n");
+	}
 
 	ret = esp32s3_gpio_register(pdev, pctl);
 	if (ret)

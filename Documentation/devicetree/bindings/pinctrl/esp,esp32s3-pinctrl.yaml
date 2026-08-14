@@ -60,7 +60,12 @@ patternProperties:
             enum: [ gpio22, gpio23, gpio24, gpio25 ]
 
       function:
-        const: gpio
+        enum:
+          - gpio
+          - i2c0-scl
+          - i2c0-sda
+          - i2c1-scl
+          - i2c1-sda
 
       bias-disable: true
       bias-pull-up: true
