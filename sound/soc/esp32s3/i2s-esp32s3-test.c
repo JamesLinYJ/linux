@@ -5,6 +5,7 @@
  */
 
 #include <kunit/test.h>
+#include <linux/bitfield.h>
 
 #include "i2s-esp32s3.h"
 
@@ -32,21 +33,20 @@ static void i2s_esp32s3_div_fraction_test(struct kunit *test)
 
 	/*
 	 * 160 MHz / (48 kHz * 256) = 13.0208... -> integer 13,
-	 * numerator 21/1000. The hardware coefficients must reconstruct
+	 * fractional part 1/48. The hardware coefficients must reconstruct
 	 * the same fraction per the official encoding:
-	 *   yn1 = (21*2 > 1000) = 0, z = 21,
-	 *   x = 1000/21 - 1 = 46, y = 1000 % 21 = 13.
+	 *   yn1 = 0, z = 1, x = 48/1 - 1 = 47, y = 0.
 	 */
 	ret = i2s_esp32s3_calc_div(160000000, 48000,
 				   I2S_ESP32S3_MCLK_MULTIPLE, &div);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_EQ(test, div.integer, 13);
-	KUNIT_EXPECT_EQ(test, div.numerator, 21);
-	KUNIT_EXPECT_EQ(test, div.denominator, 1000);
+	KUNIT_EXPECT_EQ(test, div.numerator, 1);
+	KUNIT_EXPECT_EQ(test, div.denominator, 48);
 	KUNIT_EXPECT_EQ(test, div.yn1, 0);
-	KUNIT_EXPECT_EQ(test, div.z, 21);
-	KUNIT_EXPECT_EQ(test, div.x, 46);
-	KUNIT_EXPECT_EQ(test, div.y, 13);
+	KUNIT_EXPECT_EQ(test, div.z, 1);
+	KUNIT_EXPECT_EQ(test, div.x, 47);
+	KUNIT_EXPECT_EQ(test, div.y, 0);
 }
 
 static void i2s_esp32s3_div_large_fraction_test(struct kunit *test)
@@ -55,18 +55,19 @@ static void i2s_esp32s3_div_large_fraction_test(struct kunit *test)
 	int ret;
 
 	/*
-	 * 160 MHz / (44.1 kHz * 256) = 14.1723... -> integer 14,
-	 * numerator 172/1000; num*2 <= den so yn1 = 0.
+	 * 160 MHz / (44.1 kHz * 256) = 14.1723...; the exact
+	 * fractional part is 76/441 and fits the 9-bit fields.
 	 */
 	ret = i2s_esp32s3_calc_div(160000000, 44100,
 				   I2S_ESP32S3_MCLK_MULTIPLE, &div);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_EQ(test, div.integer, 14);
-	KUNIT_EXPECT_EQ(test, div.numerator, 172);
+	KUNIT_EXPECT_EQ(test, div.numerator, 76);
+	KUNIT_EXPECT_EQ(test, div.denominator, 441);
 	KUNIT_EXPECT_EQ(test, div.yn1, 0);
-	KUNIT_EXPECT_EQ(test, div.z, 172);
+	KUNIT_EXPECT_EQ(test, div.z, 76);
 	KUNIT_EXPECT_EQ(test, div.x, 4);
-	KUNIT_EXPECT_EQ(test, div.y, 140);
+	KUNIT_EXPECT_EQ(test, div.y, 61);
 }
 
 static void i2s_esp32s3_div_invalid_test(struct kunit *test)
@@ -82,11 +83,32 @@ static void i2s_esp32s3_div_invalid_test(struct kunit *test)
 			I2S_ESP32S3_MCLK_MULTIPLE, &div), -EINVAL);
 }
 
+static void i2s_esp32s3_conf1_layout_test(struct kunit *test)
+{
+	u32 value = i2s_esp32s3_conf1_value(32, 4);
+
+	KUNIT_EXPECT_EQ(test, FIELD_GET(I2S_ESP32S3_CONF1_WS_WIDTH_MASK, value),
+			31U);
+	KUNIT_EXPECT_EQ(test, FIELD_GET(I2S_ESP32S3_CONF1_BCK_DIV_MASK, value),
+			3U);
+	KUNIT_EXPECT_EQ(test, FIELD_GET(I2S_ESP32S3_CONF1_BITS_MOD_MASK, value),
+			31U);
+	KUNIT_EXPECT_EQ(test,
+			FIELD_GET(I2S_ESP32S3_CONF1_HALF_SAMPLE_MASK, value),
+			31U);
+	KUNIT_EXPECT_EQ(test,
+			FIELD_GET(I2S_ESP32S3_CONF1_CHAN_BITS_MASK, value), 31U);
+	KUNIT_EXPECT_TRUE(test, value & I2S_ESP32S3_CONF1_MSB_SHIFT);
+	KUNIT_EXPECT_EQ(test, I2S_ESP32S3_CONF1_MSB_SHIFT, BIT(29));
+	KUNIT_EXPECT_EQ(test, I2S_ESP32S3_CLKM_MCLK_SEL, BIT(29));
+}
+
 static struct kunit_case i2s_esp32s3_test_cases[] = {
 	KUNIT_CASE(i2s_esp32s3_div_exact_test),
 	KUNIT_CASE(i2s_esp32s3_div_fraction_test),
 	KUNIT_CASE(i2s_esp32s3_div_large_fraction_test),
 	KUNIT_CASE(i2s_esp32s3_div_invalid_test),
+	KUNIT_CASE(i2s_esp32s3_conf1_layout_test),
 	{ }
 };
 

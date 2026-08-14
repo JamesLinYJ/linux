@@ -57,10 +57,25 @@ static void esp32s3_gdma_descriptor_flags_test(struct kunit *test)
 	KUNIT_EXPECT_TRUE(test, flags & ESP32S3_GDMA_DESC_EOF);
 }
 
+static void esp32s3_gdma_cyclic_validation_test(struct kunit *test)
+{
+	KUNIT_EXPECT_TRUE(test,
+			  esp32s3_gdma_cyclic_valid(0x3c000000, 16368, 4092));
+	KUNIT_EXPECT_FALSE(test,
+			   esp32s3_gdma_cyclic_valid(0x3c000000, 16384, 0));
+	KUNIT_EXPECT_FALSE(test,
+			   esp32s3_gdma_cyclic_valid(0x3c000000, 16384, 4097));
+	KUNIT_EXPECT_FALSE(test,
+			   esp32s3_gdma_cyclic_valid(0x3c000000, 16384, 4090));
+	KUNIT_EXPECT_FALSE(test,
+			   esp32s3_gdma_cyclic_valid(0x3c000002, 16368, 4092));
+}
+
 static struct kunit_case esp32s3_gdma_test_cases[] = {
 	KUNIT_CASE(esp32s3_gdma_data_address_test),
 	KUNIT_CASE(esp32s3_gdma_descriptor_address_test),
 	KUNIT_CASE(esp32s3_gdma_descriptor_flags_test),
+	KUNIT_CASE(esp32s3_gdma_cyclic_validation_test),
 	{}
 };
 

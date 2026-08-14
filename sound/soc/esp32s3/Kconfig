@@ -2,6 +2,7 @@
 config SND_SOC_ESP32S3_I2S
 	tristate "ESP32-S3 I2S controller ASoC CPU DAI"
 	depends on SND_SOC
+	select RATIONAL
 	select SND_SOC_GENERIC_DMAENGINE_PCM
 	help
 	  Say Y here to enable the ASoC CPU DAI for the ESP32-S3 I2S

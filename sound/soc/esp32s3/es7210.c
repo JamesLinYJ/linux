@@ -32,6 +32,28 @@ struct es7210_priv {
 	struct clk *mclk;
 };
 
+static const struct reg_sequence es7210_power_up_sequence[] = {
+	{ ES7210_CLOCK_OFF_REG, 0x00 },
+	{ ES7210_POWER_DOWN_REG, 0x00 },
+	{ ES7210_ANALOG_REG, 0x43 },
+	{ ES7210_MIC1_POWER_REG, 0x08 },
+	{ ES7210_MIC2_POWER_REG, 0x08 },
+	{ ES7210_MIC3_POWER_REG, 0x08 },
+	{ ES7210_MIC4_POWER_REG, 0x08 },
+	{ ES7210_ANALOG_REG, 0x43 },
+	{ ES7210_RESET_REG, 0x71 },
+	{ ES7210_RESET_REG, 0x41 },
+};
+
+static const struct reg_sequence es7210_power_down_sequence[] = {
+	{ ES7210_MIC1_POWER_REG, 0xff },
+	{ ES7210_MIC2_POWER_REG, 0xff },
+	{ ES7210_MIC3_POWER_REG, 0xff },
+	{ ES7210_MIC4_POWER_REG, 0xff },
+	{ ES7210_ANALOG_REG, 0x00 },
+	{ ES7210_RESET_REG, 0x00 },
+};
+
 static const struct regmap_config es7210_regmap_config = {
 	.reg_bits = 8,
 	.val_bits = 8,
@@ -41,31 +63,36 @@ static const struct regmap_config es7210_regmap_config = {
 static int es7210_power_up(struct es7210_priv *es7210)
 {
 	/* Official es7210_start() sequence (clock_reg_value = 0) */
-	regmap_write(es7210->regmap, ES7210_CLOCK_OFF_REG, 0x00);
-	regmap_write(es7210->regmap, ES7210_POWER_DOWN_REG, 0x00);
-	regmap_write(es7210->regmap, ES7210_ANALOG_REG, 0x43);
-	regmap_write(es7210->regmap, ES7210_MIC1_POWER_REG, 0x08);
-	regmap_write(es7210->regmap, ES7210_MIC2_POWER_REG, 0x08);
-	regmap_write(es7210->regmap, ES7210_MIC3_POWER_REG, 0x08);
-	regmap_write(es7210->regmap, ES7210_MIC4_POWER_REG, 0x08);
-	regmap_write(es7210->regmap, ES7210_ANALOG_REG, 0x43);
-	regmap_write(es7210->regmap, ES7210_RESET_REG, 0x71);
-	regmap_write(es7210->regmap, ES7210_RESET_REG, 0x41);
-
-	return 0;
+	return regmap_multi_reg_write(es7210->regmap,
+				      es7210_power_up_sequence,
+				      ARRAY_SIZE(es7210_power_up_sequence));
 }
 
 static int es7210_power_down(struct es7210_priv *es7210)
 {
 	/* Official es7210_stop() sequence */
-	regmap_write(es7210->regmap, ES7210_MIC1_POWER_REG, 0xff);
-	regmap_write(es7210->regmap, ES7210_MIC2_POWER_REG, 0xff);
-	regmap_write(es7210->regmap, ES7210_MIC3_POWER_REG, 0xff);
-	regmap_write(es7210->regmap, ES7210_MIC4_POWER_REG, 0xff);
-	regmap_write(es7210->regmap, ES7210_ANALOG_REG, 0x00);
-	regmap_write(es7210->regmap, ES7210_RESET_REG, 0x00);
+	return regmap_multi_reg_write(es7210->regmap,
+				      es7210_power_down_sequence,
+				      ARRAY_SIZE(es7210_power_down_sequence));
+}
 
-	return 0;
+static int es7210_configure_clock(struct es7210_priv *es7210,
+				  const struct es7210_coeff *coeff)
+{
+	const struct reg_sequence sequence[] = {
+		{
+			ES7210_MAINCLK_REG,
+			coeff->adc_div | (coeff->doubler << 6) |
+			(coeff->dll << 7),
+		},
+		{ ES7210_OSR_REG, coeff->osr },
+		{ ES7210_LRCK_DIVH_REG, coeff->lrck_h },
+		{ ES7210_LRCK_DIVL_REG, coeff->lrck_l },
+		{ ES7210_MASTER_CLK_REG, coeff->mclk_src },
+	};
+
+	return regmap_multi_reg_write(es7210->regmap, sequence,
+				      ARRAY_SIZE(sequence));
 }
 
 static int es7210_hw_params(struct snd_pcm_substream *substream,
@@ -77,6 +104,7 @@ static int es7210_hw_params(struct snd_pcm_substream *substream,
 	unsigned int bits = params_physical_width(params);
 	unsigned long mclk;
 	unsigned int sdp;
+	int ret;
 
 	mclk = clk_get_rate(es7210->mclk);
 	coeff = es7210_coeff_find(mclk, params_rate(params));
@@ -86,12 +114,9 @@ static int es7210_hw_params(struct snd_pcm_substream *substream,
 				     mclk, params_rate(params));
 
 	/* Official es7210_config_sample() register writes */
-	regmap_write(es7210->regmap, ES7210_MAINCLK_REG,
-		     coeff->adc_div | (coeff->doubler << 6) | (coeff->dll << 7));
-	regmap_write(es7210->regmap, ES7210_OSR_REG, coeff->osr);
-	regmap_write(es7210->regmap, ES7210_LRCK_DIVH_REG, coeff->lrck_h);
-	regmap_write(es7210->regmap, ES7210_LRCK_DIVL_REG, coeff->lrck_l);
-	regmap_write(es7210->regmap, ES7210_MASTER_CLK_REG, coeff->mclk_src);
+	ret = es7210_configure_clock(es7210, coeff);
+	if (ret)
+		return ret;
 
 	/* SDP interface: I2S format plus the sample width */
 	switch (bits) {
@@ -107,11 +132,21 @@ static int es7210_hw_params(struct snd_pcm_substream *substream,
 	default:
 		return -EINVAL;
 	}
-	regmap_update_bits(es7210->regmap, ES7210_SDP_INTERFACE1_REG,
-			   ES7210_SDP_BITS_MASK | ES7210_SDP_FMT_MASK,
-			   sdp | ES7210_SDP_FMT_I2S);
+	return regmap_update_bits(es7210->regmap, ES7210_SDP_INTERFACE1_REG,
+				  ES7210_SDP_BITS_MASK | ES7210_SDP_FMT_MASK,
+				  sdp | ES7210_SDP_FMT_I2S);
+}
 
-	return 0;
+static int es7210_set_sysclk(struct snd_soc_dai *dai, int clk_id,
+			     unsigned int freq, int dir)
+{
+	struct es7210_priv *es7210 =
+		snd_soc_component_get_drvdata(dai->component);
+
+	if (clk_id || dir != SND_SOC_CLOCK_IN || !freq)
+		return -EINVAL;
+
+	return clk_set_rate(es7210->mclk, freq);
 }
 
 static int es7210_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
@@ -133,14 +168,29 @@ static int es7210_set_bias_level(struct snd_soc_component *component,
 {
 	struct es7210_priv *es7210 =
 		snd_soc_component_get_drvdata(component);
+	struct snd_soc_dapm_context *dapm =
+		snd_soc_component_to_dapm(component);
+	int ret;
 
 	switch (level) {
-	case SND_SOC_BIAS_ON:
-		return es7210_power_up(es7210);
 	case SND_SOC_BIAS_OFF:
-		return es7210_power_down(es7210);
+		if (snd_soc_dapm_get_bias_level(dapm) == SND_SOC_BIAS_OFF)
+			return 0;
+		ret = es7210_power_down(es7210);
+		clk_disable_unprepare(es7210->mclk);
+		return ret;
 	case SND_SOC_BIAS_STANDBY:
-		return es7210_power_up(es7210);
+		if (snd_soc_dapm_get_bias_level(dapm) != SND_SOC_BIAS_OFF)
+			return 0;
+		ret = clk_prepare_enable(es7210->mclk);
+		if (ret)
+			return ret;
+		ret = es7210_power_up(es7210);
+		if (ret)
+			clk_disable_unprepare(es7210->mclk);
+		return ret;
+	case SND_SOC_BIAS_ON:
+	case SND_SOC_BIAS_PREPARE:
 	default:
 		return 0;
 	}
@@ -148,6 +198,7 @@ static int es7210_set_bias_level(struct snd_soc_component *component,
 
 static const struct snd_soc_dai_ops es7210_dai_ops = {
 	.hw_params = es7210_hw_params,
+	.set_sysclk = es7210_set_sysclk,
 	.set_fmt = es7210_set_fmt,
 };
 
@@ -156,7 +207,10 @@ static struct snd_soc_dai_driver es7210_dai = {
 	.capture = {
 		.channels_min = 1,
 		.channels_max = 4,
-		.rates = SNDRV_PCM_RATE_8000_96000,
+		/* Rates represented in the official table at 256x MCLK. */
+		.rates = SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_32000 |
+			 SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000 |
+			 SNDRV_PCM_RATE_64000,
 		.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_LE |
 			   SNDRV_PCM_FMTBIT_S32_LE,
 	},

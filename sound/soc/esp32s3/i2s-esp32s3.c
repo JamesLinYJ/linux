@@ -19,6 +19,7 @@
 #include <linux/dmaengine.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/overflow.h>
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 
@@ -39,6 +40,9 @@ struct i2s_esp32s3 {
 	unsigned long source_rate;
 	unsigned long mclk_rate;
 	struct clk_hw mclk_hw;
+	spinlock_t lock; /* protects shared TX/RX start state */
+	bool playback_active;
+	bool capture_active;
 };
 
 static inline void i2s_esp32s3_writel(struct i2s_esp32s3 *i2s,
@@ -84,12 +88,17 @@ static void i2s_esp32s3_conf1_configure(struct i2s_esp32s3 *i2s,
 					unsigned int bits_per_sample,
 					unsigned int bck_div)
 {
-	u32 reg = 0;
+	i2s_esp32s3_writel(i2s, conf1,
+			   i2s_esp32s3_conf1_value(bits_per_sample, bck_div));
+}
 
-	reg |= (bck_div - 1) << I2S_ESP32S3_CONF1_BCK_DIV_SHIFT;
-	reg |= (bits_per_sample - 1) << I2S_ESP32S3_CONF1_BITS_MOD_SHIFT;
-	reg |= I2S_ESP32S3_CONF1_MSB_SHIFT; /* Phillips standard */
-	i2s_esp32s3_writel(i2s, conf1, reg);
+static void i2s_esp32s3_reset(struct i2s_esp32s3 *i2s, unsigned int conf,
+			      u32 mask)
+{
+	u32 reg = i2s_esp32s3_readl(i2s, conf);
+
+	i2s_esp32s3_writel(i2s, conf, reg | mask);
+	i2s_esp32s3_writel(i2s, conf, reg & ~mask);
 }
 
 static int i2s_esp32s3_configure_clkm(struct i2s_esp32s3 *i2s,
@@ -128,12 +137,61 @@ static unsigned long i2s_esp32s3_mclk_recalc(struct clk_hw *hw,
 {
 	struct i2s_esp32s3 *i2s = container_of(hw, struct i2s_esp32s3, mclk_hw);
 
-	return i2s->mclk_rate;
+	return READ_ONCE(i2s->mclk_rate);
+}
+
+static int i2s_esp32s3_mclk_rate_valid(struct i2s_esp32s3 *i2s,
+				       unsigned long rate)
+{
+	struct i2s_esp32s3_div div;
+
+	if (!rate || rate % I2S_ESP32S3_MCLK_MULTIPLE ||
+	    i2s_esp32s3_calc_div(i2s->source_rate,
+				 rate / I2S_ESP32S3_MCLK_MULTIPLE,
+				 I2S_ESP32S3_MCLK_MULTIPLE, &div))
+		return -EINVAL;
+
+	return 0;
+}
+
+static int i2s_esp32s3_mclk_determine_rate(struct clk_hw *hw,
+					   struct clk_rate_request *req)
+{
+	struct i2s_esp32s3 *i2s = container_of(hw, struct i2s_esp32s3, mclk_hw);
+
+	return i2s_esp32s3_mclk_rate_valid(i2s, req->rate);
+}
+
+static int i2s_esp32s3_mclk_set_rate(struct clk_hw *hw, unsigned long rate,
+				     unsigned long parent_rate)
+{
+	struct i2s_esp32s3 *i2s = container_of(hw, struct i2s_esp32s3, mclk_hw);
+	int ret;
+
+	ret = i2s_esp32s3_mclk_rate_valid(i2s, rate);
+	if (ret)
+		return ret;
+
+	WRITE_ONCE(i2s->mclk_rate, rate);
+	return 0;
 }
 
 static const struct clk_ops i2s_esp32s3_mclk_ops = {
 	.recalc_rate = i2s_esp32s3_mclk_recalc,
+	.determine_rate = i2s_esp32s3_mclk_determine_rate,
+	.set_rate = i2s_esp32s3_mclk_set_rate,
 };
+
+static int i2s_esp32s3_set_sysclk(struct snd_soc_dai *dai, int clk_id,
+				  unsigned int freq, int dir)
+{
+	struct i2s_esp32s3 *i2s = snd_soc_dai_get_drvdata(dai);
+
+	if (clk_id || dir != SND_SOC_CLOCK_OUT)
+		return -EINVAL;
+
+	return i2s_esp32s3_mclk_set_rate(&i2s->mclk_hw, freq, 0);
+}
 
 static int i2s_esp32s3_hw_params(struct snd_pcm_substream *substream,
 				 struct snd_pcm_hw_params *params,
@@ -144,7 +202,8 @@ static int i2s_esp32s3_hw_params(struct snd_pcm_substream *substream,
 	unsigned int bits = params_physical_width(params);
 	unsigned int frame_bits = params_channels(params) * bits;
 	unsigned int bck_div;
-	unsigned int conf, conf1, clkm_conf, clkm_div_conf;
+	unsigned int mclk_rate;
+	bool capture = substream->stream == SNDRV_PCM_STREAM_CAPTURE;
 	int ret;
 
 	/* MCLK = 256x the sample rate; BCLK = MCLK / (channels * bits) */
@@ -155,40 +214,64 @@ static int i2s_esp32s3_hw_params(struct snd_pcm_substream *substream,
 	    (I2S_ESP32S3_CONF1_BCK_DIV_MASK >> I2S_ESP32S3_CONF1_BCK_DIV_SHIFT) + 1)
 		return -EINVAL;
 
+	if (check_mul_overflow(params_rate(params),
+			       I2S_ESP32S3_MCLK_MULTIPLE, &mclk_rate))
+		return -EOVERFLOW;
+	ret = i2s_esp32s3_mclk_set_rate(&i2s->mclk_hw, mclk_rate, 0);
+	if (ret)
+		return ret;
+
 	ret = i2s_esp32s3_calc_div(i2s->source_rate, params_rate(params),
 				   I2S_ESP32S3_MCLK_MULTIPLE, &div);
 	if (ret)
 		return ret;
 
-	i2s->mclk_rate = params_rate(params) * I2S_ESP32S3_MCLK_MULTIPLE;
+	/*
+	 * The board routes GPIO15/GPIO46 through I2S0O_BCK/WS. Keep TX as
+	 * the sole clock provider and let RX consume the shared internal BCK/WS,
+	 * matching i2s_ll_share_bck_ws() in the official HAL.
+	 */
+	if (!READ_ONCE(i2s->playback_active) &&
+	    !READ_ONCE(i2s->capture_active))
+		i2s_esp32s3_reset(i2s, I2S_ESP32S3_TX_CONF,
+				  I2S_ESP32S3_CONF_RESET |
+				  I2S_ESP32S3_CONF_FIFO_RESET);
+	i2s_esp32s3_conf1_configure(i2s, I2S_ESP32S3_TX_CONF1, bits,
+				    bck_div);
+	i2s_esp32s3_configure_clkm(i2s, I2S_ESP32S3_TX_CLKM_CONF,
+				   I2S_ESP32S3_TX_CLKM_DIV_CONF, &div);
+	i2s_esp32s3_write_mask(i2s, I2S_ESP32S3_TX_CONF,
+			       I2S_ESP32S3_CONF_BIG_ENDIAN |
+			       I2S_ESP32S3_CONF_SLAVE_MOD |
+			       I2S_ESP32S3_CONF_MONO |
+			       I2S_ESP32S3_TX_CONF_SIG_LOOPBACK,
+			       I2S_ESP32S3_TX_CONF_SIG_LOOPBACK);
 
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		conf = I2S_ESP32S3_TX_CONF;
-		conf1 = I2S_ESP32S3_TX_CONF1;
-		clkm_conf = I2S_ESP32S3_TX_CLKM_CONF;
-		clkm_div_conf = I2S_ESP32S3_TX_CLKM_DIV_CONF;
-	} else {
-		conf = I2S_ESP32S3_RX_CONF;
-		conf1 = I2S_ESP32S3_RX_CONF1;
-		clkm_conf = I2S_ESP32S3_RX_CLKM_CONF;
-		clkm_div_conf = I2S_ESP32S3_RX_CLKM_DIV_CONF;
+	/* MCLK_OUT follows the TX module clock selected above. */
+	i2s_esp32s3_write_mask(i2s, I2S_ESP32S3_RX_CLKM_CONF,
+			       I2S_ESP32S3_CLKM_MCLK_SEL, 0);
+
+	if (capture) {
+		i2s_esp32s3_write_mask(i2s, I2S_ESP32S3_RX_EOF_NUM,
+				       I2S_ESP32S3_RX_EOF_NUM_MASK,
+				       params_period_bytes(params));
+		i2s_esp32s3_reset(i2s, I2S_ESP32S3_RX_CONF,
+				  I2S_ESP32S3_CONF_RESET |
+				  I2S_ESP32S3_CONF_FIFO_RESET);
+		i2s_esp32s3_conf1_configure(i2s, I2S_ESP32S3_RX_CONF1, bits,
+					    bck_div);
+		i2s_esp32s3_write_mask(i2s, I2S_ESP32S3_RX_CONF,
+				       I2S_ESP32S3_CONF_BIG_ENDIAN |
+				       I2S_ESP32S3_CONF_SLAVE_MOD |
+				       I2S_ESP32S3_CONF_MONO,
+				       I2S_ESP32S3_CONF_SLAVE_MOD);
 	}
 
-	i2s_esp32s3_conf1_configure(i2s, conf1, bits, bck_div);
-	i2s_esp32s3_configure_clkm(i2s, clkm_conf, clkm_div_conf, &div);
+	ret = i2s_esp32s3_update(i2s, I2S_ESP32S3_TX_CONF);
+	if (ret || !capture)
+		return ret;
 
-	/* MCLK_OUT follows the TX module clock (mclk_sel = 0) */
-	i2s_esp32s3_write_mask(i2s, I2S_ESP32S3_RX_CLKM_CONF, BIT(30), 0);
-
-	/* Little-endian data, master mode, fifo reset */
-	i2s_esp32s3_write_mask(i2s, conf, I2S_ESP32S3_CONF_BIG_ENDIAN |
-			       I2S_ESP32S3_CONF_SLAVE_MOD |
-			       I2S_ESP32S3_CONF_MONO, 0);
-	i2s_esp32s3_writel(i2s, conf,
-			   i2s_esp32s3_readl(i2s, conf) |
-			   I2S_ESP32S3_CONF_FIFO_RESET);
-
-	return i2s_esp32s3_update(i2s, conf);
+	return i2s_esp32s3_update(i2s, I2S_ESP32S3_RX_CONF);
 }
 
 static int i2s_esp32s3_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
@@ -202,12 +285,14 @@ static int i2s_esp32s3_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	}
 
 	switch (fmt & SND_SOC_DAIFMT_CLOCK_PROVIDER_MASK) {
-	case SND_SOC_DAIFMT_CBP_CFC:
+	case SND_SOC_DAIFMT_CBP_CFP:
 		break;
 	default:
 		dev_err(dai->dev, "only I2S master mode is supported\n");
 		return -EINVAL;
 	}
+	if ((fmt & SND_SOC_DAIFMT_INV_MASK) != SND_SOC_DAIFMT_NB_NF)
+		return -EINVAL;
 
 	return 0;
 }
@@ -217,36 +302,72 @@ static int i2s_esp32s3_trigger(struct snd_pcm_substream *substream, int cmd,
 {
 	struct i2s_esp32s3 *i2s = snd_soc_dai_get_drvdata(dai);
 	bool playback = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-	unsigned int conf = playback ? I2S_ESP32S3_TX_CONF :
-				       I2S_ESP32S3_RX_CONF;
+	unsigned long flags;
 	u32 reg;
+	int ret;
 
+	spin_lock_irqsave(&i2s->lock, flags);
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
-		/* Clear FIFO and start the direction */
-		i2s_esp32s3_writel(i2s, conf,
-				   i2s_esp32s3_readl(i2s, conf) |
-				   I2S_ESP32S3_CONF_FIFO_RESET);
-		reg = i2s_esp32s3_readl(i2s, conf) | I2S_ESP32S3_CONF_START;
-		i2s_esp32s3_writel(i2s, conf, reg);
+		ret = 0;
+		if (!i2s->playback_active && !i2s->capture_active) {
+			i2s_esp32s3_reset(i2s, I2S_ESP32S3_TX_CONF,
+					  I2S_ESP32S3_CONF_FIFO_RESET);
+			ret = i2s_esp32s3_update(i2s, I2S_ESP32S3_TX_CONF);
+			if (ret)
+				break;
+			reg = i2s_esp32s3_readl(i2s, I2S_ESP32S3_TX_CONF) |
+				I2S_ESP32S3_CONF_START;
+			i2s_esp32s3_writel(i2s, I2S_ESP32S3_TX_CONF, reg);
+		}
+		if (playback) {
+			i2s->playback_active = true;
+			break;
+		}
+		i2s_esp32s3_reset(i2s, I2S_ESP32S3_RX_CONF,
+				  I2S_ESP32S3_CONF_FIFO_RESET);
+		ret = i2s_esp32s3_update(i2s, I2S_ESP32S3_RX_CONF);
+		if (ret) {
+			if (!i2s->playback_active)
+				i2s_esp32s3_write_mask(i2s, I2S_ESP32S3_TX_CONF,
+						       I2S_ESP32S3_CONF_START,
+						       0);
+			break;
+		}
+		reg = i2s_esp32s3_readl(i2s, I2S_ESP32S3_RX_CONF) |
+			I2S_ESP32S3_CONF_START;
+		i2s_esp32s3_writel(i2s, I2S_ESP32S3_RX_CONF, reg);
+		i2s->capture_active = true;
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
-		reg = i2s_esp32s3_readl(i2s, conf) & ~I2S_ESP32S3_CONF_START;
-		i2s_esp32s3_writel(i2s, conf, reg);
+		ret = 0;
+		if (playback) {
+			i2s->playback_active = false;
+		} else {
+			i2s->capture_active = false;
+			i2s_esp32s3_write_mask(i2s, I2S_ESP32S3_RX_CONF,
+					       I2S_ESP32S3_CONF_START, 0);
+		}
+		if (!i2s->playback_active && !i2s->capture_active)
+			i2s_esp32s3_write_mask(i2s, I2S_ESP32S3_TX_CONF,
+					       I2S_ESP32S3_CONF_START, 0);
 		break;
 	default:
-		return -EINVAL;
+		ret = -EINVAL;
+		break;
 	}
+	spin_unlock_irqrestore(&i2s->lock, flags);
 
-	return 0;
+	return ret;
 }
 
 static const struct snd_soc_dai_ops i2s_esp32s3_dai_ops = {
 	.hw_params = i2s_esp32s3_hw_params,
+	.set_sysclk = i2s_esp32s3_set_sysclk,
 	.set_fmt = i2s_esp32s3_set_fmt,
 	.trigger = i2s_esp32s3_trigger,
 };
@@ -267,6 +388,7 @@ static struct snd_soc_dai_driver i2s_esp32s3_dai = {
 		.formats = SNDRV_PCM_FMTBIT_S16_LE | SNDRV_PCM_FMTBIT_S24_LE |
 			   SNDRV_PCM_FMTBIT_S32_LE,
 	},
+	.symmetric_rate = 1,
 	.ops = &i2s_esp32s3_dai_ops,
 };
 
@@ -292,17 +414,21 @@ static int i2s_esp32s3_prepare_slave_config(struct snd_pcm_substream *substream,
 }
 
 static const struct snd_dmaengine_pcm_config i2s_esp32s3_dmaengine_pcm = {
+	.pcm_hardware = &(const struct snd_pcm_hardware) {
+		.info = SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID |
+			SNDRV_PCM_INFO_INTERLEAVED | SNDRV_PCM_INFO_PAUSE |
+			SNDRV_PCM_INFO_RESUME,
+		.buffer_bytes_max = 4092 * 16,
+		.period_bytes_min = 256,
+		.period_bytes_max = 4092,
+		.periods_min = 2,
+		.periods_max = 16,
+	},
 	.prepare_slave_config = i2s_esp32s3_prepare_slave_config,
 };
 
-static int i2s_esp32s3_component_probe(struct snd_soc_component *component)
-{
-	return 0;
-}
-
 static const struct snd_soc_component_driver i2s_esp32s3_component = {
 	.name = "esp32s3-i2s0",
-	.probe = i2s_esp32s3_component_probe,
 	.legacy_dai_naming = 1,
 };
 
@@ -319,6 +445,7 @@ static int i2s_esp32s3_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	i2s->dev = dev;
+	spin_lock_init(&i2s->lock);
 	i2s->regs = devm_platform_ioremap_resource(pdev, 0);
 	if (IS_ERR(i2s->regs))
 		return PTR_ERR(i2s->regs);
@@ -331,17 +458,15 @@ static int i2s_esp32s3_probe(struct platform_device *pdev)
 	if (IS_ERR(reset))
 		return dev_err_probe(dev, PTR_ERR(reset),
 				     "failed to get reset control\n");
-	reset_control_reset(reset);
+	ret = reset_control_reset(reset);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to reset I2S controller\n");
 
-	i2s->gate = devm_clk_get(dev, "gate");
+	i2s->gate = devm_clk_get_enabled(dev, "gate");
 	if (IS_ERR(i2s->gate))
 		return dev_err_probe(dev, PTR_ERR(i2s->gate),
 				     "failed to get gate clock\n");
-	ret = clk_prepare_enable(i2s->gate);
-	if (ret)
-		return dev_err_probe(dev, ret, "failed to enable gate clock\n");
-
-	i2s->source = devm_clk_get(dev, "source");
+	i2s->source = devm_clk_get_enabled(dev, "source");
 	if (IS_ERR(i2s->source))
 		return dev_err_probe(dev, PTR_ERR(i2s->source),
 				     "failed to get source clock\n");
@@ -355,6 +480,7 @@ static int i2s_esp32s3_probe(struct platform_device *pdev)
 	i2s->mclk_hw.init = &(struct clk_init_data){
 		.name = "mclk",
 		.ops = &i2s_esp32s3_mclk_ops,
+		.flags = CLK_GET_RATE_NOCACHE,
 	};
 	ret = devm_clk_hw_register(dev, &i2s->mclk_hw);
 	if (ret)
@@ -371,7 +497,7 @@ static int i2s_esp32s3_probe(struct platform_device *pdev)
 
 	return devm_snd_dmaengine_pcm_register(dev,
 					       &i2s_esp32s3_dmaengine_pcm,
-					       SND_DMAENGINE_PCM_FLAG_NO_DT);
+					       0);
 }
 
 static const struct of_device_id i2s_esp32s3_of_match[] = {

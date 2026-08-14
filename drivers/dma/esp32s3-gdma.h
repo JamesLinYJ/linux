@@ -43,6 +43,17 @@ static inline bool esp32s3_gdma_data_addr_valid(dma_addr_t addr, size_t len)
 	return !upper_32_bits(addr) && !upper_32_bits(end);
 }
 
+static inline bool esp32s3_gdma_cyclic_valid(dma_addr_t addr, size_t buf_len,
+					     size_t period_len)
+{
+	if (!period_len || period_len > ESP32S3_GDMA_DESC_MAX_LEN ||
+	    buf_len % period_len)
+		return false;
+
+	return esp32s3_gdma_data_addr_valid(addr, buf_len) &&
+		IS_ALIGNED(period_len, 4);
+}
+
 static inline u32 esp32s3_gdma_desc_flags(size_t length, bool tx, bool last)
 {
 	u32 value = FIELD_PREP(ESP32S3_GDMA_DESC_SIZE, length) |
