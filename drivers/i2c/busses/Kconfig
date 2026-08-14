@@ -672,6 +672,19 @@ config I2C_EMEV2
 	  If you say yes to this option, support will be included for the
 	  I2C interface on the Renesas Electronics EM/EV family of processors.
 
+config I2C_ESP32S3
+	tristate "Espressif ESP32-S3 I2C controller"
+	depends on XTENSA_PLATFORM_ESP32S3 || COMPILE_TEST
+	depends on OF
+	help
+	  Say Y here to enable the two I2C controllers integrated in the
+	  Espressif ESP32-S3. The driver supports controller-mode transfers
+	  through the Linux I2C adapter interface, including repeated starts
+	  and transfers larger than the hardware FIFO.
+
+	  This driver can also be built as a module. If so, the module will
+	  be called i2c-esp32s3.
+
 config I2C_EXYNOS5
 	tristate "Exynos high-speed I2C driver"
 	depends on OF
