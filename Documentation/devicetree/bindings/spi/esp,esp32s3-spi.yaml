@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: GPL-2.0-only
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/spi/esp,esp32s3-spi.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Espressif ESP32-S3 general-purpose SPI controller
+
+maintainers:
+  - ESP32-S3 Linux project <noreply@example.invalid>
+
+allOf:
+  - $ref: spi-controller.yaml#
+
+properties:
+  compatible:
+    const: esp,esp32s3-spi
+
+  reg:
+    maxItems: 1
+
+  clocks:
+    maxItems: 1
+
+  resets:
+    maxItems: 1
+
+  interrupts:
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+  - clocks
+  - resets
+  - interrupts
+
+unevaluatedProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/clock/esp32s3.h>
+    #include <dt-bindings/interrupt-controller/irq.h>
+    #include <dt-bindings/reset/esp32s3.h>
+
+    spi@60025000 {
+        compatible = "esp,esp32s3-spi";
+        reg = <0x60025000 0x1000>;
+        clocks = <&syscon ESP32S3_CLK_SPI3>;
+        resets = <&syscon ESP32S3_RST_SPI3>;
+        interrupts = <22 IRQ_TYPE_LEVEL_HIGH>;
+        #address-cells = <1>;
+        #size-cells = <0>;
+    };
