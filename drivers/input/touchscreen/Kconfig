@@ -12,6 +12,27 @@ menuconfig INPUT_TOUCHSCREEN
 
 if INPUT_TOUCHSCREEN
 
+config TOUCHSCREEN_AXS15231B
+	tristate "AXS Technology AXS15231B touchscreen"
+	depends on I2C
+	help
+	  Say Y here if you have an AXS Technology AXS15231B in-cell
+	  touchscreen controller connected over I2C.
+
+	  To compile this driver as a module, choose M here: the module will
+	  be called axs15231b.
+
+config TOUCHSCREEN_AXS15231B_KUNIT_TEST
+	tristate "KUnit tests for the AXS15231B touchscreen" if !KUNIT_ALL_TESTS
+	depends on KUNIT && TOUCHSCREEN_AXS15231B
+	default KUNIT_ALL_TESTS
+	help
+	  Build pure-logic tests for the AXS15231B touch report parser,
+	  covering active touches, releases and malformed reports. These
+	  tests run without AXS15231B hardware and do not exercise the I2C
+	  transfer path. If unsure, say N and run the tests through the
+	  project's minimal UML KUnit configuration instead.
+
 config TOUCHSCREEN_88PM860X
 	tristate "Marvell 88PM860x touchscreen"
 	depends on MFD_88PM860X

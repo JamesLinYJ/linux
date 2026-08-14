@@ -231,6 +231,15 @@
 		pinctrl-0 = <&i2c1_scl_pins &i2c1_sda_pins>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		touchscreen@3b {
+			compatible = "axs,axs15231b";
+			reg = <0x3b>;
+			interrupt-parent = <&tca9554>;
+			interrupts = <0 IRQ_TYPE_EDGE_FALLING>;
+			touchscreen-size-x = <640>;
+			touchscreen-size-y = <172>;
+		};
 	};
 
 	intc: interrupt-controller@600c2000 {

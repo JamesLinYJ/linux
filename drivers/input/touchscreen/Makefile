@@ -5,6 +5,9 @@
 
 # Each configuration option enables a list of files.
 
+obj-$(CONFIG_TOUCHSCREEN_AXS15231B)	+= axs15231b.o
+obj-$(CONFIG_TOUCHSCREEN_AXS15231B_KUNIT_TEST)	+= axs15231b-test.o
+
 wm97xx-ts-y := wm97xx-core.o
 goodix_ts-y := goodix.o goodix_fwupload.o
 
