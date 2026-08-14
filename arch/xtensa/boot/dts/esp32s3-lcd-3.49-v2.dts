@@ -75,6 +75,28 @@
 		pinctrl-0 = <&i2c0_scl_pins &i2c0_sda_pins>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		tca9554: gpio@20 {
+			compatible = "ti,tca9554";
+			reg = <0x20>;
+			interrupt-parent = <&pinctrl>;
+			interrupts = <8 IRQ_TYPE_LEVEL_LOW>;
+			gpio-controller;
+			#gpio-cells = <2>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			gpio-line-names = "tp-int", "backlight-enable",
+					  "imu-int1", "imu-int2", "rtc-int",
+					  "lcd-reset", "system-enable", "exio7";
+		};
+
+		rtc@51 {
+			compatible = "nxp,pcf85063a";
+			reg = <0x51>;
+			interrupt-parent = <&tca9554>;
+			interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
+			quartz-load-femtofarads = <12500>;
+		};
 	};
 
 	i2c1: i2c@60027000 {
