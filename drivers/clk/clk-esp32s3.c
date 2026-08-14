@@ -16,7 +16,14 @@
 #include <linux/spinlock.h>
 
 #define ESP32S3_SYS_PERIP_CLK_EN0	0x18
+#define ESP32S3_SYS_PERIP_CLK_EN1	0x1c
 #define ESP32S3_SYS_PERIP_RST_EN0	0x20
+#define ESP32S3_SYS_PERIP_RST_EN1	0x24
+
+struct esp32s3_peripheral_gate {
+	u8 bank;
+	u8 bit;
+};
 
 struct esp32s3_syscon {
 	void __iomem *base;
@@ -26,31 +33,51 @@ struct esp32s3_syscon {
 	struct reset_controller_dev reset;
 };
 
-static const u8 esp32s3_peripheral_bits[] = {
-	[ESP32S3_RST_I2C0] = 7,
-	[ESP32S3_RST_I2C1] = 18,
-	[ESP32S3_RST_SPI3] = 16,
+static const struct esp32s3_peripheral_gate esp32s3_peripheral_gates[] = {
+	[ESP32S3_RST_I2C0] = { .bit = 7 },
+	[ESP32S3_RST_I2C1] = { .bit = 18 },
+	[ESP32S3_RST_SPI3] = { .bit = 16 },
+	[ESP32S3_RST_GDMA] = { .bank = 1, .bit = 6 },
 };
+
+static void __iomem *esp32s3_syscon_reg(struct esp32s3_syscon *syscon,
+					unsigned int bank, bool reset)
+{
+	unsigned int offset;
+
+	if (reset)
+		offset = bank ? ESP32S3_SYS_PERIP_RST_EN1 :
+				ESP32S3_SYS_PERIP_RST_EN0;
+	else
+		offset = bank ? ESP32S3_SYS_PERIP_CLK_EN1 :
+				ESP32S3_SYS_PERIP_CLK_EN0;
+
+	return syscon->base + offset;
+}
 
 static int esp32s3_reset_update(struct reset_controller_dev *rcdev,
 				unsigned long id, bool assert)
 {
 	struct esp32s3_syscon *syscon =
 		container_of(rcdev, struct esp32s3_syscon, reset);
+	const struct esp32s3_peripheral_gate *gate;
 	unsigned long flags;
+	void __iomem *reg;
 	u32 value;
 
-	if (id >= ARRAY_SIZE(esp32s3_peripheral_bits))
+	if (id >= ARRAY_SIZE(esp32s3_peripheral_gates))
 		return -EINVAL;
+	gate = &esp32s3_peripheral_gates[id];
+	reg = esp32s3_syscon_reg(syscon, gate->bank, true);
 
 	spin_lock_irqsave(&syscon->lock, flags);
-	value = readl_relaxed(syscon->base + ESP32S3_SYS_PERIP_RST_EN0);
+	value = readl_relaxed(reg);
 	if (assert)
-		value |= BIT(esp32s3_peripheral_bits[id]);
+		value |= BIT(gate->bit);
 	else
-		value &= ~BIT(esp32s3_peripheral_bits[id]);
-	writel_relaxed(value, syscon->base + ESP32S3_SYS_PERIP_RST_EN0);
-	readl_relaxed(syscon->base + ESP32S3_SYS_PERIP_RST_EN0);
+		value &= ~BIT(gate->bit);
+	writel_relaxed(value, reg);
+	readl_relaxed(reg);
 	spin_unlock_irqrestore(&syscon->lock, flags);
 	return 0;
 }
@@ -72,11 +99,14 @@ static int esp32s3_reset_status(struct reset_controller_dev *rcdev,
 {
 	struct esp32s3_syscon *syscon =
 		container_of(rcdev, struct esp32s3_syscon, reset);
+	const struct esp32s3_peripheral_gate *gate;
+	void __iomem *reg;
 
-	if (id >= ARRAY_SIZE(esp32s3_peripheral_bits))
+	if (id >= ARRAY_SIZE(esp32s3_peripheral_gates))
 		return -EINVAL;
-	return !!(readl_relaxed(syscon->base + ESP32S3_SYS_PERIP_RST_EN0) &
-		  BIT(esp32s3_peripheral_bits[id]));
+	gate = &esp32s3_peripheral_gates[id];
+	reg = esp32s3_syscon_reg(syscon, gate->bank, true);
+	return !!(readl_relaxed(reg) & BIT(gate->bit));
 }
 
 static const struct reset_control_ops esp32s3_reset_ops = {
@@ -102,19 +132,21 @@ esp32s3_register_peripheral_gate(struct device *dev,
 				 struct clk_hw *pll80,
 				 const struct clk_parent_data *parent)
 {
-	void __iomem *reg = syscon->base + ESP32S3_SYS_PERIP_CLK_EN0;
-	u8 bit = esp32s3_peripheral_bits[id];
+	const struct esp32s3_peripheral_gate *gate =
+		&esp32s3_peripheral_gates[id];
+	void __iomem *reg = esp32s3_syscon_reg(syscon, gate->bank, false);
 
 	if (id == ESP32S3_CLK_SPI3)
 		return devm_clk_hw_register_gate_parent_hw(dev, name, pll80, 0,
-							reg, bit, 0,
+							reg, gate->bit, 0,
 							&syscon->lock);
-	return esp32s3_register_gate(dev, name, parent, reg, bit, &syscon->lock);
+	return esp32s3_register_gate(dev, name, parent, reg, gate->bit,
+				     &syscon->lock);
 }
 
 static int esp32s3_syscon_probe(struct platform_device *pdev)
 {
-	static const char * const names[] = { "i2c0", "i2c1", "spi3" };
+	static const char * const names[] = { "i2c0", "i2c1", "spi3", "gdma" };
 	struct device *dev = &pdev->dev;
 	struct esp32s3_syscon *syscon;
 	struct clk_parent_data parent = { .index = 0 };
