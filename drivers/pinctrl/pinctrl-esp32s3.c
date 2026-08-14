@@ -72,10 +72,21 @@
 #define ESP32S3_IOMUX_PIN_PULL_UP	BIT(8)
 #define ESP32S3_IOMUX_PIN_INPUT_ENABLE	BIT(9)
 
+#define ESP32S3_RTCIO_ENABLE_W1TC	0x014
+#define ESP32S3_RTCIO_TOUCH_PAD_BASE	0x084
+#define ESP32S3_RTCIO_TOUCH_PAD_MUX	BIT(19)
+#define ESP32S3_RTCIO_TOUCH_PAD_FUNC	GENMASK(18, 17)
+#define ESP32S3_RTCIO_TOUCH_PAD_INPUT	BIT(13)
+#define ESP32S3_RTCIO_TOUCH_PAD_PULL_DOWN BIT(28)
+#define ESP32S3_RTCIO_TOUCH_PAD_PULL_UP	BIT(27)
+#define ESP32S3_RTCIO_OUTPUT_SHIFT	10
+#define ESP32S3_RTCIO_TOUCH_PAD_LAST	14
+
 struct esp32s3_pinctrl {
 	struct device *dev;
 	void __iomem *gpio_base;
 	void __iomem *iomux_base;
+	void __iomem *rtcio_base;
 	raw_spinlock_t lock;
 	struct pinctrl_dev *pctldev;
 	struct pinctrl_desc pctldesc;
@@ -87,10 +98,12 @@ struct esp32s3_pin_function {
 	u16 signal;
 	bool input_enable;
 	bool open_drain;
+	bool analog;
 };
 
 static const struct esp32s3_pin_function esp32s3_pin_functions[] = {
 	{ "gpio", ESP32S3_GPIO_MATRIX_GPIO_OUT },
+	{ "analog", ESP32S3_GPIO_MATRIX_GPIO_OUT, .analog = true },
 	{ "i2c0-scl", 89, true, true },
 	{ "i2c0-sda", 90, true, true },
 	{ "i2c1-scl", 91, true, true },
@@ -194,6 +207,41 @@ static void esp32s3_select_gpio(struct esp32s3_pinctrl *pctl,
 			    ESP32S3_GPIO_MATRIX_GPIO_OUT);
 }
 
+static int esp32s3_select_analog(struct esp32s3_pinctrl *pctl,
+				 unsigned int pin)
+{
+	void __iomem *rtcio_reg;
+	u32 mask;
+
+	if (pin > ESP32S3_RTCIO_TOUCH_PAD_LAST)
+		return -EINVAL;
+
+	esp32s3_select_gpio(pctl, pin);
+	esp32s3_gpio_set_output_enable(pctl, pin, false);
+	esp32s3_update_bits(pctl, esp32s3_iomux_pin_reg(pctl, pin),
+			    ESP32S3_IOMUX_PIN_INPUT_ENABLE |
+			    ESP32S3_IOMUX_PIN_PULL_UP |
+			    ESP32S3_IOMUX_PIN_PULL_DOWN, 0);
+
+	/*
+	 * ADC pads 0..14 have a second RTC I/O mux.  Keep the pad on the
+	 * digital GPIO path, but disable both digital and RTC input/output
+	 * buffers and pulls so the external voltage reaches the SAR ADC.
+	 */
+	rtcio_reg = pctl->rtcio_base + ESP32S3_RTCIO_TOUCH_PAD_BASE +
+		     pin * sizeof(u32);
+	mask = ESP32S3_RTCIO_TOUCH_PAD_MUX |
+	       ESP32S3_RTCIO_TOUCH_PAD_FUNC |
+	       ESP32S3_RTCIO_TOUCH_PAD_INPUT |
+	       ESP32S3_RTCIO_TOUCH_PAD_PULL_UP |
+	       ESP32S3_RTCIO_TOUCH_PAD_PULL_DOWN;
+	esp32s3_update_bits(pctl, rtcio_reg, mask, 0);
+	writel_relaxed(BIT(pin + ESP32S3_RTCIO_OUTPUT_SHIFT),
+		       pctl->rtcio_base + ESP32S3_RTCIO_ENABLE_W1TC);
+
+	return 0;
+}
+
 static void esp32s3_select_matrix_signal(struct esp32s3_pinctrl *pctl,
 					 unsigned int pin,
 					 const struct esp32s3_pin_function *func)
@@ -243,6 +291,8 @@ static int esp32s3_pinmux_set(struct pinctrl_dev *pctldev,
 	if (function >= ARRAY_SIZE(esp32s3_pin_functions) ||
 	    !esp32s3_gpio_pin_valid(group))
 		return -EINVAL;
+	if (esp32s3_pin_functions[function].analog)
+		return esp32s3_select_analog(pctl, group);
 	if (!function)
 		esp32s3_select_gpio(pctl, group);
 	else
@@ -605,6 +655,9 @@ static int esp32s3_pinctrl_probe(struct platform_device *pdev)
 	pctl->iomux_base = devm_platform_ioremap_resource_byname(pdev, "iomux");
 	if (IS_ERR(pctl->iomux_base))
 		return PTR_ERR(pctl->iomux_base);
+	pctl->rtcio_base = devm_platform_ioremap_resource_byname(pdev, "rtcio");
+	if (IS_ERR(pctl->rtcio_base))
+		return PTR_ERR(pctl->rtcio_base);
 
 	pins = devm_kcalloc(&pdev->dev, ESP32S3_GPIO_NR_PINS, sizeof(*pins),
 			    GFP_KERNEL);

@@ -758,6 +758,26 @@ config EP93XX_ADC
 	  To compile this driver as a module, choose M here: the module will be
 	  called ep93xx_adc.
 
+config ESP32S3_ADC
+	tristate "Espressif ESP32-S3 ADC1"
+	depends on OF
+	depends on XTENSA || COMPILE_TEST
+	help
+	  Say yes here to enable the RTC-controller one-shot ADC1 on the
+	  Espressif ESP32-S3. The driver exposes configured channels through
+	  the Industrial I/O subsystem. Only uncalibrated 12-bit raw samples
+	  are reported.
+
+config ESP32S3_ADC_KUNIT_TEST
+	tristate "KUnit tests for the ESP32-S3 ADC" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Build pure-logic tests for ESP32-S3 ADC channel and attenuation
+	  register encoding. These tests run without ESP32-S3 hardware and do
+	  not exercise the MMIO conversion path. If unsure, say N and run the
+	  tests through the project's minimal UML KUnit configuration instead.
+
 config EXYNOS_ADC
 	tristate "Exynos ADC driver support"
 	depends on ARCH_EXYNOS || ARCH_S3C64XX || ARCH_S5PV210 || (OF && COMPILE_TEST)

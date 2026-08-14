@@ -147,6 +147,23 @@
 		#dma-cells = <2>;
 	};
 
+	adc: adc@60008800 {
+		compatible = "esp,esp32s3-adc";
+		reg = <0x60008800 0x200>, <0x6000e000 0x100>;
+		reg-names = "sens", "analog";
+		pinctrl-names = "default";
+		pinctrl-0 = <&adc1_channel3_pin>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		#io-channel-cells = <1>;
+
+		channel@3 {
+			reg = <3>;
+			esp,attenuation = <2>;
+			label = "battery-divider";
+		};
+	};
+
 	ledc: pwm@60019000 {
 		compatible = "esp,esp32s3-ledc";
 		reg = <0x60019000 0x1000>;
@@ -234,8 +251,9 @@
 
 	pinctrl: pinctrl@60004000 {
 		compatible = "esp,esp32s3-pinctrl";
-		reg = <0x60004000 0x700>, <0x60009000 0x100>;
-		reg-names = "gpio", "iomux";
+		reg = <0x60004000 0x700>, <0x60009000 0x100>,
+		      <0x60008400 0x100>;
+		reg-names = "gpio", "iomux", "rtcio";
 		interrupt-parent = <&intc>;
 		interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
 		gpio-controller;
@@ -244,6 +262,13 @@
 		gpio-reserved-ranges = <19 2>, <22 16>;
 		interrupt-controller;
 		#interrupt-cells = <2>;
+
+		adc1_channel3_pin: adc1-channel3-pin {
+			pins = "gpio4";
+			function = "analog";
+			bias-disable;
+			input-disable;
+		};
 
 		i2c0_scl_pins: i2c0-scl-pins {
 			pins = "gpio48";

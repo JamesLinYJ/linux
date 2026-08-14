@@ -21,11 +21,13 @@ properties:
     items:
       - description: GPIO and signal matrix registers
       - description: I/O multiplexer registers
+      - description: RTC I/O registers
 
   reg-names:
     items:
       - const: gpio
       - const: iomux
+      - const: rtcio
 
   gpio-controller: true
 
@@ -61,6 +63,7 @@ patternProperties:
 
       function:
         enum:
+          - analog
           - gpio
           - i2c0-scl
           - i2c0-sda
@@ -118,8 +121,9 @@ examples:
 
     pinctrl: pinctrl@60004000 {
         compatible = "esp,esp32s3-pinctrl";
-        reg = <0x60004000 0x700>, <0x60009000 0x100>;
-        reg-names = "gpio", "iomux";
+        reg = <0x60004000 0x700>, <0x60009000 0x100>,
+              <0x60008400 0x100>;
+        reg-names = "gpio", "iomux", "rtcio";
         interrupt-parent = <&intc>;
         interrupts = <16 IRQ_TYPE_LEVEL_HIGH>;
         gpio-controller;
