@@ -9,13 +9,13 @@
 #include <linux/module.h>
 #include <linux/of_dma.h>
 #include <linux/of_reserved_mem.h>
-#include <linux/overflow.h>
 #include <linux/platform_device.h>
 #include <linux/reset.h>
 #include <linux/scatterlist.h>
 
 #include <dt-bindings/dma/esp32s3-gdma.h>
 
+#include "esp32s3-gdma.h"
 #include "virt-dma.h"
 
 #define ESP32S3_GDMA_PAIRS		5
@@ -52,16 +52,6 @@
 #define ESP32S3_GDMA_TX_DONE		BIT(3)
 #define ESP32S3_GDMA_TX_ERRORS		(BIT(2) | BIT(4) | BIT(5) | \
 					 BIT(6) | BIT(7))
-
-#define ESP32S3_GDMA_DESC_SIZE		GENMASK(11, 0)
-#define ESP32S3_GDMA_DESC_LENGTH	GENMASK(23, 12)
-#define ESP32S3_GDMA_DESC_EOF		BIT(30)
-#define ESP32S3_GDMA_DESC_OWNER		BIT(31)
-#define ESP32S3_GDMA_DESC_MAX_LEN	4092
-
-/* Link base registers omit the fixed 0x3fc upper internal-SRAM bits. */
-#define ESP32S3_GDMA_DESC_ADDR_PREFIX	0x3fc00000
-#define ESP32S3_GDMA_DESC_ADDR_MASK	GENMASK(19, 0)
 
 struct esp32s3_gdma_hw_desc {
 	__le32 flags;
@@ -146,32 +136,6 @@ static void esp32s3_gdma_desc_free(struct virt_dma_desc *vd)
 	kfree(desc);
 }
 
-static bool esp32s3_gdma_desc_addr_valid(struct esp32s3_gdma *gdma,
-					 dma_addr_t addr, size_t size)
-{
-	phys_addr_t end;
-
-	if (!size || check_add_overflow((phys_addr_t)addr, size - 1, &end))
-		return false;
-	if ((addr & ~ESP32S3_GDMA_DESC_ADDR_MASK) !=
-	    ESP32S3_GDMA_DESC_ADDR_PREFIX)
-		return false;
-
-	return addr >= gdma->desc_pool.start && end <= gdma->desc_pool.end;
-}
-
-static bool esp32s3_gdma_data_addr_valid(dma_addr_t addr, size_t len)
-{
-	dma_addr_t end;
-
-	if (!len || !IS_ALIGNED(addr, 4) || !IS_ALIGNED(len, 4))
-		return false;
-	if (check_add_overflow(addr, len - 1, &end))
-		return false;
-
-	return !upper_32_bits(addr) && !upper_32_bits(end);
-}
-
 static struct dma_async_tx_descriptor *
 esp32s3_gdma_prep_slave_sg(struct dma_chan *dma_chan,
 			   struct scatterlist *sgl, unsigned int sg_len,
@@ -217,7 +181,9 @@ esp32s3_gdma_prep_slave_sg(struct dma_chan *dma_chan,
 				      &desc->hw_dma, GFP_NOWAIT);
 	if (!desc->hw)
 		goto err_free_desc;
-	if (!esp32s3_gdma_desc_addr_valid(gdma, desc->hw_dma, hw_size))
+	if (!esp32s3_gdma_desc_addr_valid(desc->hw_dma, hw_size,
+					  gdma->desc_pool.start,
+					  gdma->desc_pool.end))
 		goto err_free_hw;
 
 	for_each_sg(sgl, sg, sg_len, i) {
@@ -228,13 +194,8 @@ esp32s3_gdma_prep_slave_sg(struct dma_chan *dma_chan,
 			struct esp32s3_gdma_hw_desc *hw = &desc->hw[index];
 			size_t length = min_t(size_t, remaining,
 					      ESP32S3_GDMA_DESC_MAX_LEN);
-			u32 value = FIELD_PREP(ESP32S3_GDMA_DESC_SIZE, length) |
-				FIELD_PREP(ESP32S3_GDMA_DESC_LENGTH,
-					   chan->tx ? length : 0) |
-				ESP32S3_GDMA_DESC_OWNER;
-
-			if (chan->tx && index == count - 1)
-				value |= ESP32S3_GDMA_DESC_EOF;
+			u32 value = esp32s3_gdma_desc_flags(length, chan->tx,
+							 index == count - 1);
 			hw->flags = cpu_to_le32(value);
 			hw->buffer = cpu_to_le32(lower_32_bits(address));
 			hw->next = cpu_to_le32(index == count - 1 ? 0 :

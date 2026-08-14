@@ -158,6 +158,13 @@ config ESP32S3_GDMA
 	  ESP32-S3. The controller supplies independently routed receive and
 	  transmit channels to on-chip peripherals such as SPI and I2S.
 
+config ESP32S3_GDMA_KUNIT_TEST
+	tristate "KUnit tests for ESP32-S3 GDMA" if !KUNIT_ALL_TESTS
+	depends on KUNIT
+	default KUNIT_ALL_TESTS
+	help
+	  Test ESP32-S3 GDMA descriptor flags and DMA address boundaries.
+
 config DMA_JZ4780
 	tristate "JZ4780 DMA support"
 	depends on MIPS || COMPILE_TEST
