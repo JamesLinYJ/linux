@@ -76,6 +76,12 @@
 			#clock-cells = <0>;
 			clock-frequency = <160000000>;
 		};
+
+		apb_80m: apb-80m-clock {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <80000000>;
+		};
 	};
 
 	syscon: clock-controller@600c0000 {
@@ -176,6 +182,28 @@
 		i2s0_din_pin: i2s0-din-pin {
 			pins = "gpio45";
 			function = "i2s0-din";
+			input-enable;
+		};
+	};
+
+	uart0: serial@60000000 {
+		compatible = "esp,esp32s3-uart";
+		reg = <0x60000000 0x80>;
+		clocks = <&apb_80m>;
+		interrupt-parent = <&intc>;
+		interrupts = <81 IRQ_TYPE_LEVEL_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&uart0_tx_pin &uart0_rx_pin>;
+		status = "disabled";
+
+		uart0_tx_pin: uart0-tx-pin {
+			pins = "gpio43";
+			function = "uart0-txd";
+		};
+
+		uart0_rx_pin: uart0-rx-pin {
+			pins = "gpio44";
+			function = "uart0-rxd";
 			input-enable;
 		};
 	};

@@ -1626,3 +1626,26 @@ endmenu
 
 config SERIAL_MCTRL_GPIO
 	tristate
+
+config SERIAL_ESP32S3_UART
+	tristate "ESP32-S3 UART support"
+	depends on OF
+	select SERIAL_CORE
+	help
+	  Say Y here to enable the ESP32-S3 UART controller driver. The
+	  Waveshare ESP32-S3-Touch-LCD-3.49 V2 exposes UART0 on the
+	  GPIO43/44 header.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called esp32s3-uart.
+
+config SERIAL_ESP32S3_UART_KUNIT_TEST
+	tristate "KUnit tests for the ESP32-S3 UART" if !KUNIT_ALL_TESTS
+	depends on KUNIT && SERIAL_ESP32S3_UART
+	default KUNIT_ALL_TESTS
+	help
+	  Build pure-logic tests for the ESP32-S3 UART baud divider
+	  calculation. These tests run without ESP32-S3 hardware and do
+	  not exercise any register access. If unsure, say N and run the
+	  tests through the project's minimal UML KUnit configuration
+	  instead.

@@ -100,3 +100,5 @@ obj-$(CONFIG_SERIAL_MCTRL_GPIO)	+= serial_mctrl_gpio.o
 
 obj-$(CONFIG_KGDB_SERIAL_CONSOLE) += kgdboc.o
 obj-$(CONFIG_SERIAL_NUVOTON_MA35D1) += ma35d1_serial.o
+obj-$(CONFIG_SERIAL_ESP32S3_UART) += esp32s3-uart.o
+obj-$(CONFIG_SERIAL_ESP32S3_UART_KUNIT_TEST) += esp32s3-uart-test.o

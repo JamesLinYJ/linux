@@ -74,6 +74,8 @@ patternProperties:
           - i2s0-dout
           - i2s0-mclk
           - i2s0-ws
+          - uart0-rxd
+          - uart0-txd
           - ledc-ls0
           - ledc-ls1
           - ledc-ls2

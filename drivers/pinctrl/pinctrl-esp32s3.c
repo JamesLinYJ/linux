@@ -131,6 +131,8 @@ static const struct esp32s3_pin_function esp32s3_pin_functions[] = {
 	{ "i2s0-ws", 24 },
 	{ "i2s0-din", 25, true },
 	{ "i2s0-dout", 25 },
+	{ "uart0-txd", 12 },
+	{ "uart0-rxd", 12, true },
 };
 
 static bool esp32s3_gpio_pin_valid(unsigned int pin)
