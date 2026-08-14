@@ -8,6 +8,7 @@ serial_base-y := serial_core.o serial_base_bus.o serial_ctrl.o serial_port.o
 
 obj-$(CONFIG_SERIAL_EARLYCON) += earlycon.o
 obj-$(CONFIG_SERIAL_ESP32S3_USB_EARLYCON) += esp32s3-usb-earlycon.o
+obj-$(CONFIG_SERIAL_ESP32S3_USB) += esp32s3-usb-serial.o
 obj-$(CONFIG_SERIAL_EARLYCON_SEMIHOST) += earlycon-semihost.o
 obj-$(CONFIG_SERIAL_EARLYCON_RISCV_SBI) += earlycon-riscv-sbi.o
 

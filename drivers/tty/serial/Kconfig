@@ -26,6 +26,24 @@ config SERIAL_ESP32S3_USB_EARLYCON
 	  and does not provide input or interrupt-driven operation. The full
 	  runtime TTY driver is intentionally separate.
 
+config SERIAL_ESP32S3_USB
+	bool "ESP32-S3 USB Serial/JTAG TTY"
+	depends on XTENSA_PLATFORM_ESP32S3
+	select SERIAL_CORE
+	help
+	  Provide an interrupt-driven TTY for the serial endpoint of the
+	  ESP32-S3 USB Serial/JTAG peripheral. The USB link has fixed byte
+	  framing, so baud rate and modem-control requests are informational.
+
+config SERIAL_ESP32S3_USB_CONSOLE
+	bool "Console on ESP32-S3 USB Serial/JTAG"
+	depends on SERIAL_ESP32S3_USB=y
+	select SERIAL_CORE_CONSOLE
+	default y
+	help
+	  Use the ESP32-S3 USB Serial/JTAG TTY as a normal kernel console after
+	  the platform driver has taken over from earlycon.
+
 source "drivers/tty/serial/8250/Kconfig"
 
 comment "Non-8250 serial port support"

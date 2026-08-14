@@ -26675,7 +26675,7 @@ F:	Documentation/devicetree/bindings/xtensa/
 F:	arch/xtensa/
 F:	drivers/irqchip/irq-esp32s3.c
 F:	drivers/irqchip/irq-xtensa-*
-F:	drivers/tty/serial/esp32s3-usb-earlycon.c
+F:	drivers/tty/serial/esp32s3-usb-*
 
 TEXAS INSTRUMENTS ASoC DRIVERS
 M:	Sen Wang <sen@ti.com>

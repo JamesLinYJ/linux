@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /dts-v1/;
 
+#include <dt-bindings/interrupt-controller/irq.h>
+
 / {
 	model = "Waveshare ESP32-S3-Touch-LCD-3.49 V2";
 	compatible = "waveshare,esp32-s3-touch-lcd-3.49-v2",
@@ -55,6 +57,8 @@
 	usb_serial_jtag: serial@60038000 {
 		compatible = "esp,esp32s3-usb-serial-jtag";
 		reg = <0x60038000 0x1000>;
+		interrupt-parent = <&intc>;
+		interrupts = <96 IRQ_TYPE_LEVEL_HIGH>;
 	};
 
 	pic: interrupt-controller {

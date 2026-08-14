@@ -11,8 +11,9 @@ maintainers:
 
 description: |
   The ESP32-S3 USB Serial/JTAG controller exposes a USB serial endpoint and a
-  JTAG bridge. The initial binding supports polling-only early console output;
-  interrupt and clock properties will be specified with the runtime driver.
+  JTAG bridge. Linux uses the serial endpoint for early console and normal TTY
+  operation. The ROM leaves the integrated USB PHY and device controller in a
+  usable state; this node does not control the JTAG bridge or PHY routing.
 
 allOf:
   - $ref: serial.yaml#
@@ -24,15 +25,22 @@ properties:
   reg:
     maxItems: 1
 
+  interrupts:
+    maxItems: 1
+
 required:
   - compatible
   - reg
+  - interrupts
 
 unevaluatedProperties: false
 
 examples:
   - |
+    #include <dt-bindings/interrupt-controller/irq.h>
+
     serial@60038000 {
         compatible = "esp,esp32s3-usb-serial-jtag";
         reg = <0x60038000 0x1000>;
+        interrupts = <96 IRQ_TYPE_LEVEL_HIGH>;
     };

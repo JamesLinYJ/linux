@@ -10,13 +10,7 @@
 #include <linux/io.h>
 #include <linux/serial_core.h>
 
-#define ESP32S3_USB_SERIAL_EP1		0x00
-#define ESP32S3_USB_SERIAL_EP1_CONF	0x04
-#define ESP32S3_USB_SERIAL_WR_DONE	BIT(0)
-#define ESP32S3_USB_SERIAL_TX_FREE	BIT(1)
-
-/* Do not let an absent or stalled USB host stop the kernel from booting. */
-#define ESP32S3_USB_SERIAL_POLL_LIMIT	100000
+#include "esp32s3-usb-serial.h"
 
 static bool esp32s3_usb_earlycon_tx_ready(struct uart_port *port)
 {
@@ -53,23 +47,39 @@ static void esp32s3_usb_earlycon_write(struct console *console,
 {
 	struct earlycon_device *device = console->data;
 	struct uart_port *port = &device->port;
-	bool wrote = false;
+	unsigned int bytes = 0;
 	unsigned int index;
+	unsigned int retry;
 
 	for (index = 0; index < count; index++) {
 		if (string[index] == '\n') {
 			if (!esp32s3_usb_earlycon_putc(port, '\r'))
 				break;
-			wrote = true;
+			bytes++;
 		}
 		if (!esp32s3_usb_earlycon_putc(port, string[index]))
 			break;
-		wrote = true;
+		bytes++;
 	}
 
-	if (wrote)
+	if (bytes) {
 		writel(ESP32S3_USB_SERIAL_WR_DONE,
 		       port->membase + ESP32S3_USB_SERIAL_EP1_CONF);
+		if (!(bytes % ESP32S3_USB_SERIAL_FIFO_SIZE)) {
+			for (retry = 0; retry < ESP32S3_USB_SERIAL_POLL_LIMIT;
+			     retry++) {
+				if (readl_relaxed(port->membase +
+						  ESP32S3_USB_SERIAL_EP1_CONF) &
+				    ESP32S3_USB_SERIAL_TX_FREE) {
+					writel(ESP32S3_USB_SERIAL_WR_DONE,
+					       port->membase +
+					       ESP32S3_USB_SERIAL_EP1_CONF);
+					break;
+				}
+				cpu_relax();
+			}
+		}
+	}
 }
 
 static int __init
