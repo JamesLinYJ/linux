@@ -5,7 +5,8 @@
 #define ESP32S3_RST_I2C0	0
 #define ESP32S3_RST_I2C1	1
 #define ESP32S3_RST_SPI3	2
+#define ESP32S3_RST_GDMA	3
 
-#define ESP32S3_RST_NUM		3
+#define ESP32S3_RST_NUM		4
 
 #endif /* _DT_BINDINGS_RESET_ESP32S3_H */
