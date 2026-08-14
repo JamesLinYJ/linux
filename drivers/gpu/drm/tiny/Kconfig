@@ -1,5 +1,31 @@
 # SPDX-License-Identifier: GPL-2.0-only
 
+config DRM_AXS15231B
+	tristate "AXS Technology AXS15231B QSPI panel"
+	depends on DRM && SPI
+	select DRM_GEM_DMA_HELPER
+	select DRM_KMS_HELPER
+	select BACKLIGHT_CLASS_DEVICE
+	help
+	  Say Y here if you have an AXS Technology AXS15231B 172x640
+	  QSPI command-mode LCD panel. The panel is driven over quad SPI
+	  with a 4-byte single-line command phase in SPI mode 3.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called axs15231b.
+
+config DRM_AXS15231B_KUNIT_TEST
+	tristate "KUnit tests for the AXS15231B panel" if !KUNIT_ALL_TESTS
+	depends on KUNIT && DRM_AXS15231B
+	default KUNIT_ALL_TESTS
+	help
+	  Build pure-logic tests for the AXS15231B panel protocol
+	  helpers: the QSPI command header encoding, rectangle size
+	  arithmetic and the init table transcription checksum. These
+	  tests run without AXS15231B hardware and do not exercise the
+	  SPI transfer path. If unsure, say N and run the tests through
+	  the project's minimal UML KUnit configuration instead.
+
 config DRM_APPLETBDRM
 	tristate "DRM support for Apple Touch Bars"
 	depends on DRM && USB && MMU

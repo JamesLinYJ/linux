@@ -121,6 +121,16 @@
 			     &spi3_q_pin &spi3_wp_pin &spi3_hd_pin>;
 		#address-cells = <1>;
 		#size-cells = <0>;
+
+		panel@0 {
+			compatible = "axs,axs15231b";
+			reg = <0>;
+			spi-max-frequency = <40000000>;
+			spi-cpha;
+			spi-cpol;
+			reset-gpios = <&tca9554 5 GPIO_ACTIVE_LOW>;
+			backlight = <&lcd_backlight>;
+		};
 	};
 
 	gdma: dma-controller@6003f000 {
