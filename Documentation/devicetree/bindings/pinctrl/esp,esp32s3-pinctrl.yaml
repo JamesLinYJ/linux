@@ -66,6 +66,12 @@ patternProperties:
           - i2c0-sda
           - i2c1-scl
           - i2c1-sda
+          - spi3-clk
+          - spi3-cs0
+          - spi3-d
+          - spi3-hd
+          - spi3-q
+          - spi3-wp
 
       bias-disable: true
       bias-pull-up: true
