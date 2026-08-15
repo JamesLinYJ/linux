@@ -247,9 +247,7 @@ SECTIONS
   }
 
 #ifdef CONFIG_XTENSA_XIP_HARVARD_ALIAS
-  __xip_after_init_rodata_physical =
-	ABSOLUTE(. - CONFIG_XIP_DATA_ALIAS_BASE);
-  . = KERNELOFFSET + __xip_after_init_rodata_physical;
+  /* Keep the load-order sentinels below in the data alias as well. */
 #else
   PERCPU_SECTION(XCHAL_ICACHE_LINESIZE)
 #endif
