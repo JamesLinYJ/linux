@@ -25,13 +25,20 @@
 	};
 
 	chosen {
-		bootargs = "earlycon";
+		bootargs = "earlycon console=ttyESJ0,115200 root=mtd:rootfs rootfstype=cramfs ro";
 		stdout-path = "serial0";
 	};
 
-	memory@3c300000 {
+	rootfs@3c240000 {
+		compatible = "mtd-rom";
+		reg = <0x3c240000 0x00080000>;
+		bank-width = <4>;
+		linux,mtd-name = "rootfs";
+	};
+
+	memory@3c2c0000 {
 		device_type = "memory";
-		reg = <0x3c300000 0x004f0000>;
+		reg = <0x3c2c0000 0x00530000>;
 	};
 
 	reserved-memory {
