@@ -463,11 +463,35 @@ static int esp32s3_gpio_direction_input(struct gpio_chip *gpio,
 {
 	struct esp32s3_pinctrl *pctl = gpiochip_get_data(gpio);
 
+	esp32s3_select_gpio(pctl, pin);
 	esp32s3_gpio_set_output_enable(pctl, pin, false);
 	esp32s3_update_bits(pctl, esp32s3_iomux_pin_reg(pctl, pin),
 			    ESP32S3_IOMUX_PIN_INPUT_ENABLE,
 			    ESP32S3_IOMUX_PIN_INPUT_ENABLE);
 	return 0;
+}
+
+static int esp32s3_gpio_irq_request_resources(struct irq_data *data)
+{
+	struct gpio_chip *gpio = irq_data_get_irq_chip_data(data);
+	int ret;
+
+	ret = gpiochip_reqres_irq(gpio, data->hwirq);
+	if (ret)
+		return ret;
+
+	ret = esp32s3_gpio_direction_input(gpio, data->hwirq);
+	if (ret)
+		gpiochip_relres_irq(gpio, data->hwirq);
+
+	return ret;
+}
+
+static void esp32s3_gpio_irq_release_resources(struct irq_data *data)
+{
+	struct gpio_chip *gpio = irq_data_get_irq_chip_data(data);
+
+	gpiochip_relres_irq(gpio, data->hwirq);
 }
 
 static int esp32s3_gpio_direction_output(struct gpio_chip *gpio,
@@ -590,8 +614,9 @@ static const struct irq_chip esp32s3_gpio_irqchip = {
 	.irq_mask = esp32s3_gpio_irq_mask,
 	.irq_unmask = esp32s3_gpio_irq_unmask,
 	.irq_set_type = esp32s3_gpio_irq_set_type,
+	.irq_request_resources = esp32s3_gpio_irq_request_resources,
+	.irq_release_resources = esp32s3_gpio_irq_release_resources,
 	.flags = IRQCHIP_IMMUTABLE,
-	GPIOCHIP_IRQ_RESOURCE_HELPERS,
 };
 
 static void esp32s3_gpio_irq_handler(struct irq_desc *desc)

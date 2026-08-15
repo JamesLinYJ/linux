@@ -8,6 +8,7 @@
 
 #include <linux/bitops.h>
 #include <linux/clk-provider.h>
+#include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/module.h>
 #include <linux/of.h>
@@ -97,6 +98,20 @@ static int esp32s3_reset_deassert(struct reset_controller_dev *rcdev,
 	return esp32s3_reset_update(rcdev, id, false);
 }
 
+static int esp32s3_reset(struct reset_controller_dev *rcdev,
+			 unsigned long id)
+{
+	int ret;
+
+	ret = esp32s3_reset_assert(rcdev, id);
+	if (ret)
+		return ret;
+
+	/* Two microseconds spans many APB cycles even at the slowest setup. */
+	udelay(2);
+	return esp32s3_reset_deassert(rcdev, id);
+}
+
 static int esp32s3_reset_status(struct reset_controller_dev *rcdev,
 				unsigned long id)
 {
@@ -113,6 +128,7 @@ static int esp32s3_reset_status(struct reset_controller_dev *rcdev,
 }
 
 static const struct reset_control_ops esp32s3_reset_ops = {
+	.reset = esp32s3_reset,
 	.assert = esp32s3_reset_assert,
 	.deassert = esp32s3_reset_deassert,
 	.status = esp32s3_reset_status,
