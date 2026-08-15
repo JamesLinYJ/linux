@@ -628,6 +628,24 @@ config XIP_KERNEL
 
 	  If unsure, say N.
 
+config XTENSA_XIP_HARVARD_ALIAS
+	bool
+	depends on XIP_KERNEL
+	default y if XTENSA_PLATFORM_ESP32S3
+	help
+	  Keep executable and data-only XIP sections in distinct virtual
+	  aliases of the same physical memory.  This is required by Harvard
+	  systems where the instruction-bus alias cannot service data loads
+	  and the data-bus alias cannot service instruction fetches.
+
+config XIP_DATA_ALIAS_BASE
+	hex
+	depends on XTENSA_XIP_HARVARD_ALIAS
+	default 0x3c000000 if XTENSA_PLATFORM_ESP32S3
+	help
+	  Data-bus virtual base corresponding to KERNEL_LOAD_ADDRESS in the
+	  instruction-bus alias.  Both aliases must map physical offset zero.
+
 config MEMMAP_CACHEATTR
 	hex "Cache attributes for the memory address space"
 	depends on !MMU

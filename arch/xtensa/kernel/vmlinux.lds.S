@@ -134,7 +134,24 @@ SECTIONS
 
   . = ALIGN(16);
 
+#ifdef CONFIG_XTENSA_XIP_HARVARD_ALIAS
+  /*
+   * ESP32-S3 cache-backed external RAM has distinct instruction and data
+   * aliases.  Preserve the physical offset while moving all data-read
+   * sections to the DBus alias; symbol references then carry the correct
+   * access address without runtime pointer fixups.
+   */
+  __xip_rodata_physical = ABSOLUTE(. - KERNELOFFSET);
+  . = CONFIG_XIP_DATA_ALIAS_BASE + __xip_rodata_physical;
+#endif
+
   RO_DATA(4096)
+
+#ifdef CONFIG_XTENSA_XIP_HARVARD_ALIAS
+  __xip_after_rodata_physical =
+	ABSOLUTE(. - CONFIG_XIP_DATA_ALIAS_BASE);
+  . = KERNELOFFSET + __xip_after_rodata_physical;
+#endif
 
   /* Data section */
 
@@ -157,7 +174,13 @@ SECTIONS
   }
 #endif
 
+#ifdef CONFIG_XTENSA_XIP_HARVARD_ALIAS
+  __xip_init_rodata_physical = ABSOLUTE(. - KERNELOFFSET);
+  . = CONFIG_XIP_DATA_ALIAS_BASE + __xip_init_rodata_physical;
+  .init.rodata (READONLY) :
+#else
   .init.rodata :
+#endif
   {
     . = ALIGN(0x4);
     __tagtable_begin = .;
@@ -223,7 +246,13 @@ SECTIONS
     INIT_RAM_FS
   }
 
+#ifdef CONFIG_XTENSA_XIP_HARVARD_ALIAS
+  __xip_after_init_rodata_physical =
+	ABSOLUTE(. - CONFIG_XIP_DATA_ALIAS_BASE);
+  . = KERNELOFFSET + __xip_after_init_rodata_physical;
+#else
   PERCPU_SECTION(XCHAL_ICACHE_LINESIZE)
+#endif
 
   /* We need this dummy segment here */
 
@@ -348,9 +377,17 @@ SECTIONS
 
   _xip_start = .;
 
+#ifdef CONFIG_XTENSA_XIP_HARVARD_ALIAS
+  /* The loader already populates DBus PT_LOAD segments at their VMA. */
+  PERCPU_SECTION(XCHAL_ICACHE_LINESIZE)
+
+#undef LOAD_OFFSET
+#define LOAD_OFFSET 0
+#else
 #undef LOAD_OFFSET
 #define LOAD_OFFSET \
   (CONFIG_XIP_DATA_ADDR - (LOADADDR(.dummy1) + SIZEOF(.dummy1) + 3) & ~ 3)
+#endif
 
   _xip_data_start = .;
   _sdata = .;
@@ -375,6 +412,15 @@ SECTIONS
   _xip_end = .;
 
 #undef LOAD_OFFSET
+#endif
+
+#ifdef CONFIG_XTENSA_XIP_HARVARD_ALIAS
+  ASSERT((CONFIG_XIP_DATA_ALIAS_BASE & (PAGE_SIZE - 1)) == 0,
+	 "XIP data alias base must be page aligned")
+  ASSERT(CONFIG_XIP_DATA_ADDR >= CONFIG_XIP_DATA_ALIAS_BASE,
+	 "XIP data address precedes its DBus alias")
+  ASSERT(CONFIG_XIP_DATA_ADDR < CONFIG_XIP_DATA_ALIAS_BASE + 0x00800000,
+	 "XIP data address is outside the ESP32-S3 PSRAM alias")
 #endif
 
   DWARF_DEBUG
