@@ -40,6 +40,9 @@ KBUILD_CFLAGS += $(call cc-option,-mno-fdpic,)
 ifneq ($(CONFIG_KERNEL_ABI_CALL0),)
 KBUILD_CFLAGS += -mabi=call0
 KBUILD_AFLAGS += -mabi=call0
+else
+KBUILD_CFLAGS += -mabi=windowed
+KBUILD_AFLAGS += -mabi=windowed
 endif
 
 KBUILD_AFLAGS += -mlongcalls -mtext-section-literals
