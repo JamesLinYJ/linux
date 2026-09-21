@@ -3,6 +3,7 @@
 config DRM_AXS15231B
 	tristate "AXS Technology AXS15231B QSPI panel"
 	depends on DRM && SPI
+	select DRM_CLIENT_SELECTION
 	select DRM_GEM_DMA_HELPER
 	select DRM_KMS_HELPER
 	select BACKLIGHT_CLASS_DEVICE

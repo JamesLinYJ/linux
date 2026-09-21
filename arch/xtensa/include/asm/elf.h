@@ -104,7 +104,7 @@ struct mm_struct;
 
 int esp32s3_fdpic_check(struct elf_fdpic_params *params, struct file *file);
 int esp32s3_fdpic_finalize_map(struct elf_fdpic_params *params,
-			      struct mm_struct *mm);
+			       struct mm_struct *mm);
 #define elf_fdpic_arch_check esp32s3_fdpic_check
 #define elf_fdpic_arch_finalize_map esp32s3_fdpic_finalize_map
 #endif

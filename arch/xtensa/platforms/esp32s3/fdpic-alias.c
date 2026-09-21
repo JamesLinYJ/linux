@@ -43,8 +43,8 @@ int esp32s3_fdpic_check(struct elf_fdpic_params *params, struct file *file)
 		for (j = 0; j < i; j++) {
 			const struct elf_phdr *prev = &params->phdrs[j];
 
-			if (prev->p_type == PT_LOAD && ph->p_vaddr <
-			    prev->p_vaddr + prev->p_memsz && prev->p_vaddr < end)
+			if (prev->p_type == PT_LOAD &&
+			    ph->p_vaddr < prev->p_vaddr + prev->p_memsz)
 				return -ENOEXEC;
 		}
 		if ((ph->p_flags & PF_X) && hdr->e_entry >= ph->p_vaddr &&
