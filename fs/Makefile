@@ -38,7 +38,9 @@ obj-$(CONFIG_BINFMT_SCRIPT)	+= binfmt_script.o
 obj-$(CONFIG_BINFMT_ELF)	+= binfmt_elf.o
 obj-$(CONFIG_COMPAT_BINFMT_ELF)	+= compat_binfmt_elf.o
 obj-$(CONFIG_BINFMT_ELF_FDPIC)	+= binfmt_elf_fdpic.o
+ifneq ($(CONFIG_XTENSA_PLATFORM_ESP32S3),y)
 obj-$(CONFIG_BINFMT_FLAT)	+= binfmt_flat.o
+endif
 
 obj-$(CONFIG_FS_STACK)		+= backing-file.o
 obj-$(CONFIG_FS_MBCACHE)	+= mbcache.o

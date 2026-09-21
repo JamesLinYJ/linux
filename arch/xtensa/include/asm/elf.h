@@ -97,6 +97,18 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 #define elf_check_fdpic(x) ((x)->e_ident[EI_OSABI] == ELFOSABI_XTENSA_FDPIC)
 #define ELF_FDPIC_CORE_EFLAGS 0
 
+#ifdef CONFIG_XTENSA_PLATFORM_ESP32S3
+struct elf_fdpic_params;
+struct file;
+struct mm_struct;
+
+int esp32s3_fdpic_check(struct elf_fdpic_params *params, struct file *file);
+int esp32s3_fdpic_finalize_map(struct elf_fdpic_params *params,
+			      struct mm_struct *mm);
+#define elf_fdpic_arch_check esp32s3_fdpic_check
+#define elf_fdpic_arch_finalize_map esp32s3_fdpic_finalize_map
+#endif
+
 /*
  * These are used to set parameters in the core dumps.
  */
@@ -170,6 +182,7 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 
 #define ELF_FDPIC_PLAT_INIT(_r, _exec_map_addr, _interp_map_addr, dynamic_addr) \
 	do { \
+		ELF_PLAT_INIT(_r, 0); \
 		(_r)->areg[4] = _exec_map_addr; \
 		(_r)->areg[5] = _interp_map_addr; \
 		(_r)->areg[6] = dynamic_addr; \

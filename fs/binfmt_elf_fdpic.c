@@ -40,6 +40,13 @@
 #include <linux/uaccess.h>
 #include <asm/param.h>
 
+#ifndef elf_fdpic_arch_check
+#define elf_fdpic_arch_check(params, file) 0
+#endif
+#ifndef elf_fdpic_arch_finalize_map
+#define elf_fdpic_arch_finalize_map(params, mm) 0
+#endif
+
 typedef char *elf_caddr_t;
 
 #if 0
@@ -156,6 +163,9 @@ static int elf_fdpic_fetch_phdrs(struct elf_fdpic_params *params,
 	retval = kernel_read(file, params->phdrs, size, &pos);
 	if (unlikely(retval != size))
 		return retval < 0 ? retval : -ENOEXEC;
+	retval = elf_fdpic_arch_check(params, file);
+	if (retval)
+		return retval;
 
 	/* determine stack size for this binary */
 	phdr = params->phdrs;
@@ -875,6 +885,10 @@ static int elf_fdpic_map_file(struct elf_fdpic_params *params,
 		}
 		break;
 	}
+
+	ret = elf_fdpic_arch_finalize_map(params, mm);
+	if (ret)
+		return ret;
 
 	/* now elide adjacent segments in the load map on MMU linux
 	 * - on uClinux the holes between may actually be filled with system
