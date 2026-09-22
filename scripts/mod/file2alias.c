@@ -102,6 +102,9 @@ typedef uint32_t	__u32;
 typedef uint16_t	__u16;
 typedef unsigned char	__u8;
 
+/* Keep kernel UUID types separate from libc's uuid_t on BSD hosts. */
+#define uuid_t kernel_uuid_t
+
 /* UUID types for backward compatibility, don't use in new code */
 typedef struct {
 	__u8 b[16];
@@ -122,6 +125,7 @@ typedef struct {
  * even potentially has different endianness and word sizes, since
  * we handle those differences explicitly below */
 #include "../../include/linux/mod_devicetable.h"
+#undef uuid_t
 
 struct devtable {
 	const char *device_id;
