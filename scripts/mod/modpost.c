@@ -1027,11 +1027,16 @@ static bool is_executable_section(struct elf_info *elf, unsigned int secndx)
 	return (elf->sechdrs[secndx].sh_flags & SHF_EXECINSTR) != 0;
 }
 
+static bool xtensa_literal_ref_allowed(struct elf_info *elf,
+				       unsigned int secndx, Elf_Addr addr,
+				       const char *tosec, const char *tosym);
+
 static void default_mismatch_handler(struct module *mod, struct elf_info *elf,
 				     const struct sectioncheck* const mismatch,
 				     Elf_Sym *tsym,
 				     unsigned int fsecndx, const char *fromsec, Elf_Addr faddr,
-				     const char *tosec, Elf_Addr taddr)
+				     const char *tosec, Elf_Addr taddr,
+				     bool text_literal)
 {
 	Elf_Sym *from;
 	const char *tosym;
@@ -1039,14 +1044,18 @@ static void default_mismatch_handler(struct module *mod, struct elf_info *elf,
 	char taddr_str[16];
 
 	from = find_fromsym(elf, faddr, fsecndx);
-	fromsym = sym_name(elf, from);
+	fromsym = text_literal ? "" : sym_name(elf, from);
 
 	tsym = find_tosym(elf, taddr, tsym);
 	tosym = sym_name(elf, tsym);
 
-	/* check whitelist - we may ignore it */
-	if (!secref_whitelist(fromsec, fromsym, tosec, tosym))
+	/* A text literal belongs to its readers, not the preceding symbol. */
+	if (text_literal) {
+		if (xtensa_literal_ref_allowed(elf, fsecndx, faddr, tosec, tosym))
+			return;
+	} else if (!secref_whitelist(fromsec, fromsym, tosec, tosym)) {
 		return;
+	}
 
 	sec_mismatch_count++;
 
@@ -1158,7 +1167,8 @@ static void check_export_symbol(struct module *mod, struct elf_info *elf,
 static void check_section_mismatch(struct module *mod, struct elf_info *elf,
 				   Elf_Sym *sym,
 				   unsigned int fsecndx, const char *fromsec,
-				   Elf_Addr faddr, Elf_Addr taddr)
+				   Elf_Addr faddr, Elf_Addr taddr,
+				   bool text_literal)
 {
 	const char *tosec = sec_name(elf, get_secindex(elf, sym));
 	const struct sectioncheck *mismatch;
@@ -1174,7 +1184,7 @@ static void check_section_mismatch(struct module *mod, struct elf_info *elf,
 
 	default_mismatch_handler(mod, elf, mismatch, sym,
 				 fsecndx, fromsec, faddr,
-				 tosec, taddr);
+				 tosec, taddr, text_literal);
 }
 
 static Elf_Addr addend_386_rel(uint32_t *location, unsigned int r_type)
@@ -1350,6 +1360,277 @@ static void get_rel_type_and_sym(struct elf_info *elf, uint64_t r_info,
 	*r_sym = ELF_R_SYM(r_info);
 }
 
+#ifndef R_XTENSA_32
+#define R_XTENSA_32		1
+#endif
+#ifndef R_XTENSA_SLOT0_OP
+#define R_XTENSA_SLOT0_OP	20
+#endif
+
+static void *xtensa_section_data(struct elf_info *elf, unsigned int secndx,
+				Elf_Addr offset, size_t size)
+{
+	Elf_Shdr *sec;
+
+	if (secndx >= elf->num_sections)
+		return NULL;
+	sec = &elf->sechdrs[secndx];
+	if (sec->sh_type == SHT_NOBITS || offset > sec->sh_size ||
+	    size > sec->sh_size - offset || sec->sh_offset > elf->size ||
+	    offset > elf->size - sec->sh_offset ||
+	    size > elf->size - sec->sh_offset - offset)
+		return NULL;
+	return sym_get_data_by_offset(elf, secndx, offset);
+}
+
+static bool xtensa_rela_addend(struct elf_info *elf, unsigned int secndx,
+			      Elf_Addr offset, unsigned int type,
+			      Elf_Addr *addr)
+{
+	uint32_t *word;
+
+	/* R_XTENSA_32 is partial-inplace even in a RELA section. */
+	if (type != R_XTENSA_32)
+		return true;
+	word = xtensa_section_data(elf, secndx, offset, sizeof(*word));
+	if (!word)
+		return false;
+	*addr += get_unaligned_native(word);
+	return true;
+}
+
+static bool xtensa_reader_allowed(struct elf_info *elf, unsigned int secndx,
+				  Elf_Addr offset, const char *tosec,
+				  const char *tosym)
+{
+	Elf_Sym *sym = find_fromsym(elf, offset, secndx);
+	const char *fromsec = sec_name(elf, secndx);
+
+	if (!sym || ELF_ST_TYPE(sym->st_info) != STT_FUNC ||
+	    offset < sym->st_value || offset - sym->st_value >= sym->st_size ||
+	    sym->st_size - (offset - sym->st_value) < 3)
+		return false;
+	return !section_mismatch(fromsec, tosec) ||
+	       !secref_whitelist(fromsec, sym_name(elf, sym), tosec, tosym);
+}
+
+static bool xtensa_insn_has_reloc(struct elf_info *elf, unsigned int secndx,
+				  Elf_Addr offset)
+{
+	unsigned int i;
+
+	for (i = 0; i < elf->num_sections; i++) {
+		Elf_Shdr *sec = &elf->sechdrs[i];
+		const Elf_Rela *rel, *stop;
+
+		if (sec->sh_type != SHT_RELA || sec->sh_info != secndx)
+			continue;
+		rel = xtensa_section_data(elf, i, 0, sec->sh_size);
+		if (!rel || sec->sh_size % sizeof(*rel))
+			return false;
+		stop = rel + sec->sh_size / sizeof(*rel);
+		for (; rel < stop; rel++) {
+			unsigned int type, index;
+
+			get_rel_type_and_sym(elf, rel->r_info, &type, &index);
+			if (TO_NATIVE(rel->r_offset) == offset &&
+			    type == R_XTENSA_SLOT0_OP)
+				return true;
+		}
+	}
+	return false;
+}
+
+/* --no-link-relax can resolve same-section L32R without a relocation. */
+static bool xtensa_local_refs_allowed(struct elf_info *elf, unsigned int secndx,
+				     Elf_Addr addr, const char *tosec,
+				     const char *tosym, bool *found)
+{
+	unsigned int i;
+	Elf_Sym *function;
+	size_t section_size = elf->sechdrs[secndx].sh_size;
+	unsigned char *covered = NULL;
+	bool have_metadata = false, allowed = false;
+
+	if (!xtensa_section_data(elf, secndx, 0, section_size))
+		return false;
+	covered = xmalloc(section_size ? section_size : 1);
+	memset(covered, 0, section_size);
+
+	/* .xt.prop records are three words: address, byte size, flags. */
+	for (i = 0; i < elf->num_sections; i++) {
+		Elf_Shdr *sec = &elf->sechdrs[i];
+		const Elf_Rela *rel, *stop;
+
+		if (sec->sh_type != SHT_RELA || sec->sh_info >= elf->num_sections ||
+		    !strstarts(sec_name(elf, sec->sh_info), ".xt.prop"))
+			continue;
+		rel = xtensa_section_data(elf, i, 0, sec->sh_size);
+		if (!rel || sec->sh_size % sizeof(*rel))
+			goto out;
+		stop = rel + sec->sh_size / sizeof(*rel);
+		for (; rel < stop; rel++) {
+			unsigned int type, index;
+			Elf_Addr start, offset = TO_NATIVE(rel->r_offset);
+			const uint32_t *prop;
+			const unsigned char *code;
+			uint32_t size, pos, len, flags;
+			Elf_Sym *sym;
+
+			get_rel_type_and_sym(elf, rel->r_info, &type, &index);
+			if (index >= elf->symtab_stop - elf->symtab_start)
+				goto out;
+			sym = elf->symtab_start + index;
+			if (get_secindex(elf, sym) != secndx)
+				continue;
+			prop = xtensa_section_data(elf, sec->sh_info, offset, 12);
+			if (type != R_XTENSA_32 || offset % 12 || !prop)
+				goto out;
+			have_metadata = true;
+			flags = get_unaligned_native(prop + 2);
+			start = sym->st_value + TO_NATIVE(rel->r_addend) +
+				get_unaligned_native(prop);
+			size = get_unaligned_native(prop + 1);
+			code = xtensa_section_data(elf, secndx, start, size);
+			if (!code)
+				goto out;
+			if (!(flags & 2)) { /* PROP_INSN */
+				if (!(flags & 8)) /* PROP_UNREACHABLE */
+					continue;
+				/* Gas can put zero-filled alignment inside a function. */
+				for (pos = 0; pos < size; pos++)
+					if (code[pos])
+						goto out;
+				memset(covered + start, 1, size);
+				continue;
+			}
+			/* Absolute literal addressing is not a PC-relative L32R. */
+			if (flags & 0x20000)
+				goto out;
+			memset(covered + start, 1, size);
+			for (pos = 0; pos < size; pos += len) {
+				unsigned int op0, imm;
+				Elf_Addr pc = start + pos, target;
+
+				op0 = target_is_big_endian ? code[pos] >> 4 :
+					code[pos] & 0xf;
+				/* Base 24-bit ISA and 16-bit density instructions. */
+				if (op0 >= 14) /* Unknown extension format. */
+					goto out;
+				len = op0 < 8 ? 3 : 2;
+				if (len > size - pos)
+					goto out;
+				if (op0 != 1)
+					continue;
+				imm = target_is_big_endian ?
+					(code[pos + 1] << 8) | code[pos + 2] :
+					code[pos + 1] | (code[pos + 2] << 8);
+				target = ((pc + 3) & ~3U) +
+					(int32_t)(imm | 0xffff0000U) * 4;
+				if (target != addr || xtensa_insn_has_reloc(elf, secndx, pc))
+					continue;
+				if (!xtensa_reader_allowed(elf, secndx, pc, tosec, tosym))
+					goto out;
+				*found = true;
+			}
+		}
+	}
+	/* Partial/removed metadata must not conceal a resolved reader. */
+	for (function = elf->symtab_start; function < elf->symtab_stop; function++) {
+		if (get_secindex(elf, function) != secndx ||
+		    ELF_ST_TYPE(function->st_info) != STT_FUNC)
+			continue;
+		if (!function->st_size || function->st_value > section_size ||
+		    function->st_size > section_size - function->st_value ||
+		    memchr(covered + function->st_value, 0, function->st_size))
+			goto out;
+	}
+	allowed = have_metadata;
+out:
+	free(covered);
+	return allowed;
+}
+
+/*
+ * Xtensa places L32R literals before function entry points.  A nearest-symbol
+ * lookup therefore cannot associate a literal with its users, including
+ * constprop clones covered by the existing section-reference whitelist.
+ * Follow every allocated reference to the literal instead.  Shared pools
+ * are safe only if every reader independently satisfies the existing rules;
+ * escaped addresses, unknown instructions and missing readers remain errors.
+ */
+static bool xtensa_literal_ref_allowed(struct elf_info *elf,
+				       unsigned int secndx, Elf_Addr addr,
+				       const char *tosec, const char *tosym)
+{
+	Elf_Sym *sym;
+	unsigned int i;
+	bool found = false;
+
+	if (elf->hdr->e_ident[EI_CLASS] != ELFCLASS32)
+		return false;
+	for (sym = elf->symtab_start; sym < elf->symtab_stop; sym++) {
+		bool overlap;
+
+		if (get_secindex(elf, sym) != secndx)
+			continue;
+		overlap = sym->st_value >= addr ? sym->st_value - addr < 4 :
+			addr - sym->st_value < sym->st_size;
+		if (overlap && (ELF_ST_BIND(sym->st_info) != STB_LOCAL ||
+			       ELF_ST_TYPE(sym->st_info) == STT_OBJECT))
+			return false;
+	}
+	for (i = 0; i < elf->num_sections; i++) {
+		Elf_Shdr *relsec = &elf->sechdrs[i];
+		const Elf_Rela *rel, *stop;
+		unsigned int fromndx = relsec->sh_info;
+
+		if (relsec->sh_type != SHT_RELA && relsec->sh_type != SHT_REL)
+			continue;
+		if (fromndx >= elf->num_sections)
+			return false;
+		if (!(elf->sechdrs[fromndx].sh_flags & SHF_ALLOC))
+			continue; /* .xt.prop/.xt.lit and debug metadata */
+		if (relsec->sh_type != SHT_RELA ||
+		    relsec->sh_size % sizeof(*rel))
+			return false;
+		rel = xtensa_section_data(elf, i, 0, relsec->sh_size);
+		if (!rel)
+			return false;
+		stop = rel + relsec->sh_size / sizeof(*rel);
+		for (; rel < stop; rel++) {
+			unsigned int type, index;
+			Elf_Addr target, offset = TO_NATIVE(rel->r_offset);
+			const unsigned char *insn;
+
+			get_rel_type_and_sym(elf, rel->r_info, &type, &index);
+			if (index >= elf->symtab_stop - elf->symtab_start)
+				return false;
+			sym = elf->symtab_start + index;
+			if (get_secindex(elf, sym) != secndx)
+				continue;
+			target = sym->st_value + TO_NATIVE(rel->r_addend);
+			if (!xtensa_rela_addend(elf, fromndx, offset, type, &target))
+				return false;
+			if (target < addr || target - addr >= sizeof(uint32_t))
+				continue;
+			if (target != addr || type != R_XTENSA_SLOT0_OP ||
+			    !is_executable_section(elf, fromndx))
+				return false;
+			insn = xtensa_section_data(elf, fromndx, offset, 3);
+			/* Base ISA L32R: op0 is 1 in either byte order. */
+			if (!insn || (target_is_big_endian ? insn[0] >> 4 :
+				     insn[0] & 0xf) != 1)
+				return false;
+			if (!xtensa_reader_allowed(elf, fromndx, offset, tosec, tosym))
+				return false;
+			found = true;
+		}
+	}
+	return xtensa_local_refs_allowed(elf, secndx, addr, tosec, tosym, &found) &&
+	       found;
+}
+
 static void section_rela(struct module *mod, struct elf_info *elf,
 			 unsigned int fsecndx, const char *fromsec,
 			 const Elf_Rela *start, const Elf_Rela *stop)
@@ -1368,6 +1649,10 @@ static void section_rela(struct module *mod, struct elf_info *elf,
 		taddr = tsym->st_value + TO_NATIVE(rela->r_addend);
 
 		switch (elf->hdr->e_machine) {
+		case EM_XTENSA:
+			if (!xtensa_rela_addend(elf, fsecndx, r_offset, r_type, &taddr))
+				fatal("Invalid Xtensa relocation offset\n");
+			break;
 		case EM_RISCV:
 			if (!strcmp("__ex_table", fromsec) &&
 			    r_type == R_RISCV_SUB32)
@@ -1388,7 +1673,10 @@ static void section_rela(struct module *mod, struct elf_info *elf,
 		}
 
 		check_section_mismatch(mod, elf, tsym,
-				       fsecndx, fromsec, r_offset, taddr);
+				       fsecndx, fromsec, r_offset, taddr,
+				       elf->hdr->e_machine == EM_XTENSA &&
+				       r_type == R_XTENSA_32 &&
+				       is_executable_section(elf, fsecndx));
 	}
 }
 
@@ -1425,7 +1713,7 @@ static void section_rel(struct module *mod, struct elf_info *elf,
 		}
 
 		check_section_mismatch(mod, elf, tsym,
-				       fsecndx, fromsec, r_offset, taddr);
+				       fsecndx, fromsec, r_offset, taddr, false);
 	}
 }
 
