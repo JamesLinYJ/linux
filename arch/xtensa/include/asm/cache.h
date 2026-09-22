@@ -29,7 +29,12 @@
 # define CACHE_WAY_SIZE ICACHE_WAY_SIZE
 #endif
 
+/* The ESP32-S3 MSPI cache is external to the Xtensa core. */
+#ifdef CONFIG_XTENSA_PLATFORM_ESP32S3
+#define ARCH_DMA_MINALIGN	64
+#else
 #define ARCH_DMA_MINALIGN	L1_CACHE_BYTES
+#endif
 
 /*
  * R/O after init is actually writable, it cannot go to .rodata

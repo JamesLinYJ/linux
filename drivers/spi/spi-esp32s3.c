@@ -5,6 +5,7 @@
 #include <linux/clk.h>
 #include <linux/completion.h>
 #include <linux/dmaengine.h>
+#include <linux/dma-mapping.h>
 #include <linux/iopoll.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
@@ -56,7 +57,8 @@
 #define ESP32S3_SPI_INT_TRANS_DONE	BIT(12)
 #define ESP32S3_SPI_INT_DMA_ERRORS	(BIT(0) | BIT(1) | BIT(17) | BIT(18))
 
-#define ESP32S3_SPI_DMA_TX_AFIFO_RST	BIT(31)
+#define ESP32S3_SPI_DMA_TX_AFIFO_RST	(BIT(31) | BIT(30))
+#define ESP32S3_SPI_DMA_TX_EMPTY		BIT(0)
 #define ESP32S3_SPI_DMA_RX_AFIFO_RST	BIT(29)
 #define ESP32S3_SPI_DMA_TX_EN		BIT(28)
 #define ESP32S3_SPI_DMA_RX_EN		BIT(27)
@@ -67,6 +69,7 @@
 
 #define ESP32S3_SPI_FIFO_SIZE		64
 #define ESP32S3_SPI_DMA_MAX_SIZE		32768
+#define ESP32S3_SPI_STAGE_SIZE		4096
 #define ESP32S3_SPI_UPDATE_TIMEOUT_US	10000
 #define ESP32S3_SPI_TRANSFER_TIMEOUT_MS	1000
 
@@ -76,11 +79,15 @@ struct esp32s3_spi {
 	struct completion dma_rx_done;
 	struct completion dma_tx_done;
 	struct reset_control *reset;
+	struct device *dma_dev;
+	void *stage;
+	dma_addr_t stage_dma;
 	phys_addr_t phys_base;
 	unsigned long clk_rate;
 	enum dmaengine_tx_result dma_rx_result;
 	enum dmaengine_tx_result dma_tx_result;
 	int error;
+	u32 irq_status;
 	int irq;
 };
 
@@ -136,6 +143,7 @@ static irqreturn_t esp32s3_spi_irq(int irq, void *data)
 	if (!handled)
 		return IRQ_NONE;
 
+	WRITE_ONCE(espi->irq_status, status);
 	writel(handled, espi->base + ESP32S3_SPI_INT_CLR);
 	writel(0, espi->base + ESP32S3_SPI_INT_ENA);
 	if (status & ESP32S3_SPI_INT_DMA_ERRORS)
@@ -292,23 +300,6 @@ static void esp32s3_spi_read_fifo(struct esp32s3_spi *espi, u8 *buffer,
 	}
 }
 
-static bool esp32s3_spi_can_dma(struct spi_controller *host,
-				struct spi_device *spi,
-				struct spi_transfer *xfer)
-{
-	if (host->fallback || !host->dma_rx || !host->dma_tx)
-		return false;
-	if (xfer->len <= ESP32S3_SPI_FIFO_SIZE ||
-	    xfer->len > ESP32S3_SPI_DMA_MAX_SIZE || !IS_ALIGNED(xfer->len, 4))
-		return false;
-	if (xfer->tx_buf && !IS_ALIGNED((uintptr_t)xfer->tx_buf, 4))
-		return false;
-	if (xfer->rx_buf && !IS_ALIGNED((uintptr_t)xfer->rx_buf, 4))
-		return false;
-
-	return true;
-}
-
 static void esp32s3_spi_dma_rx_callback(void *data,
 					const struct dmaengine_result *result)
 {
@@ -338,7 +329,7 @@ static void esp32s3_spi_dma_tx_callback(void *data,
 static struct dma_async_tx_descriptor *
 esp32s3_spi_dma_prep(struct esp32s3_spi *espi,
 		     struct dma_chan *chan,
-		     struct sg_table *sgt,
+		     dma_addr_t address, size_t length,
 		     enum dma_transfer_direction direction)
 {
 	struct dma_slave_config config = {
@@ -358,9 +349,8 @@ esp32s3_spi_dma_prep(struct esp32s3_spi *espi,
 	if (dmaengine_slave_config(chan, &config))
 		return NULL;
 
-	return dmaengine_prep_slave_sg(chan, sgt->sgl, sgt->nents,
-				       direction,
-				       DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
+	return dmaengine_prep_slave_single(chan, address, length, direction,
+					   DMA_PREP_INTERRUPT | DMA_CTRL_ACK);
 }
 
 static bool esp32s3_spi_wait_until(struct completion *done,
@@ -394,6 +384,7 @@ static int esp32s3_spi_transfer_dma(struct spi_controller *host,
 	unsigned long deadline;
 	dma_cookie_t cookie;
 	u32 dma_conf = 0;
+	u32 fifo;
 	int recover_ret;
 	int ret;
 
@@ -402,7 +393,9 @@ static int esp32s3_spi_transfer_dma(struct spi_controller *host,
 		return ret;
 
 	if (xfer->rx_buf) {
-		rxdesc = esp32s3_spi_dma_prep(espi, host->dma_rx, &xfer->rx_sg,
+		rxdesc = esp32s3_spi_dma_prep(espi, host->dma_rx,
+					      espi->stage_dma + ESP32S3_SPI_STAGE_SIZE,
+					      xfer->len,
 					      DMA_DEV_TO_MEM);
 		if (!rxdesc)
 			goto no_start;
@@ -410,7 +403,8 @@ static int esp32s3_spi_transfer_dma(struct spi_controller *host,
 		rxdesc->callback_param = espi;
 	}
 	if (xfer->tx_buf) {
-		txdesc = esp32s3_spi_dma_prep(espi, host->dma_tx, &xfer->tx_sg,
+		txdesc = esp32s3_spi_dma_prep(espi, host->dma_tx,
+					      espi->stage_dma, xfer->len,
 					      DMA_MEM_TO_DEV);
 		if (!txdesc)
 			goto no_start;
@@ -447,11 +441,23 @@ static int esp32s3_spi_transfer_dma(struct spi_controller *host,
 	       ESP32S3_SPI_DMA_TX_AFIFO_RST,
 	       espi->base + ESP32S3_SPI_DMA_CONF);
 	writel(dma_conf, espi->base + ESP32S3_SPI_DMA_CONF);
+	/* DMA mode is shadowed: commit it before starting the transaction. */
+	ret = esp32s3_spi_update(espi);
+	if (ret)
+		goto transfer_failed;
 
 	if (rxdesc)
 		dma_async_issue_pending(host->dma_rx);
-	if (txdesc)
+	if (txdesc) {
 		dma_async_issue_pending(host->dma_tx);
+		/* Prime the peripheral FIFO before starting SPI clocks. */
+		ret = readl_poll_timeout_atomic(espi->base + ESP32S3_SPI_DMA_CONF,
+						fifo, !(fifo & ESP32S3_SPI_DMA_TX_EMPTY),
+						1, 1000);
+		if (ret)
+			goto transfer_failed;
+
+	}
 	writel(ESP32S3_SPI_INT_TRANS_DONE | ESP32S3_SPI_INT_DMA_ERRORS,
 	       espi->base + ESP32S3_SPI_INT_CLR);
 	writel(ESP32S3_SPI_INT_TRANS_DONE | ESP32S3_SPI_INT_DMA_ERRORS,
@@ -481,6 +487,9 @@ static int esp32s3_spi_transfer_dma(struct spi_controller *host,
 	return 0;
 
 transfer_failed:
+	dev_warn_ratelimited(&spi->dev, "DMA failure %d irq=%08x fifo=%08x len=%u\n",
+			     ret, READ_ONCE(espi->irq_status),
+			     readl(espi->base + ESP32S3_SPI_DMA_CONF), xfer->len);
 	writel(0, espi->base + ESP32S3_SPI_DMA_CONF);
 	esp32s3_spi_dma_terminate(host);
 	recover_ret = esp32s3_spi_recover(espi);
@@ -553,8 +562,38 @@ static int esp32s3_spi_transfer_one(struct spi_controller *host,
 
 	if (!xfer->tx_buf && !xfer->rx_buf)
 		return -EINVAL;
-	if (esp32s3_spi_can_dma(host, spi, xfer))
-		return esp32s3_spi_transfer_dma(host, spi, xfer, keep_after);
+	/*
+	 * Flash XIP, CPU PSRAM accesses and external DMA share MSPI bandwidth.
+	 * A bounded internal-SRAM stage isolates the clocked SPI transaction
+	 * from that contention. The core must not DMA-map the CPU source.
+	 */
+	if (espi->stage && xfer->len > ESP32S3_SPI_FIFO_SIZE &&
+	    IS_ALIGNED(xfer->len, 4)) {
+		while (offset < xfer->len) {
+			struct spi_transfer part = *xfer;
+			bool keep_cs;
+			int ret;
+
+			part.len = min_t(size_t, xfer->len - offset,
+					 ESP32S3_SPI_STAGE_SIZE);
+			part.tx_buf = xfer->tx_buf ? espi->stage : NULL;
+			part.rx_buf = xfer->rx_buf ?
+				espi->stage + ESP32S3_SPI_STAGE_SIZE : NULL;
+			if (part.tx_buf)
+				memcpy(espi->stage, xfer->tx_buf + offset, part.len);
+			dma_wmb();
+			keep_cs = offset + part.len < xfer->len || keep_after;
+			ret = esp32s3_spi_transfer_dma(host, spi, &part, keep_cs);
+			if (ret)
+				return ret;
+			dma_rmb();
+			if (part.rx_buf)
+				memcpy(xfer->rx_buf + offset, part.rx_buf, part.len);
+			xfer->effective_speed_hz = part.effective_speed_hz;
+			offset += part.len;
+		}
+		return 0;
+	}
 
 	while (offset < xfer->len) {
 		size_t length = min_t(size_t, xfer->len - offset,
@@ -635,6 +674,14 @@ static int esp32s3_spi_request_dma(struct device *dev,
 	return 0;
 }
 
+static void esp32s3_spi_free_stage(void *data)
+{
+	struct esp32s3_spi *espi = data;
+
+	dma_free_coherent(espi->dma_dev, 2 * ESP32S3_SPI_STAGE_SIZE,
+			  espi->stage, espi->stage_dma);
+}
+
 static int esp32s3_spi_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -691,11 +738,23 @@ static int esp32s3_spi_probe(struct platform_device *pdev)
 	host->max_dma_len = ESP32S3_SPI_DMA_MAX_SIZE;
 	host->dma_alignment = 4;
 	host->set_cs = esp32s3_spi_set_cs;
-	host->can_dma = esp32s3_spi_can_dma;
 	host->transfer_one = esp32s3_spi_transfer_one;
 	ret = esp32s3_spi_request_dma(dev, host);
 	if (ret)
 		return ret;
+
+	if (host->dma_tx && host->dma_rx) {
+		espi->dma_dev = dmaengine_get_dma_device(host->dma_tx);
+		espi->stage = dma_alloc_coherent(espi->dma_dev,
+						2 * ESP32S3_SPI_STAGE_SIZE,
+						&espi->stage_dma, GFP_KERNEL);
+		if (!espi->stage)
+			return -ENOMEM;
+		ret = devm_add_action_or_reset(dev, esp32s3_spi_free_stage, espi);
+		if (ret)
+			return ret;
+		dev_info(dev, "DMA staging: 4096-byte TX and RX in internal SRAM\n");
+	}
 
 	esp32s3_spi_hw_init(espi);
 	platform_set_drvdata(pdev, host);

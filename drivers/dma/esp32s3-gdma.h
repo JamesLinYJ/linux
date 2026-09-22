@@ -10,7 +10,8 @@
 #define ESP32S3_GDMA_DESC_LENGTH	GENMASK(23, 12)
 #define ESP32S3_GDMA_DESC_EOF		BIT(30)
 #define ESP32S3_GDMA_DESC_OWNER		BIT(31)
-#define ESP32S3_GDMA_DESC_MAX_LEN	4092
+/* Keep subsequent external-memory descriptors cache-line/block aligned. */
+#define ESP32S3_GDMA_DESC_MAX_LEN	4032
 
 /* Link base registers omit the fixed 0x3fc upper internal-SRAM bits. */
 #define ESP32S3_GDMA_DESC_ADDR_PREFIX	0x3fc00000
@@ -40,6 +41,10 @@ static inline bool esp32s3_gdma_data_addr_valid(dma_addr_t addr, size_t len)
 	if (check_add_overflow(addr, len - 1, &end))
 		return false;
 
+	if (addr >= 0x3c000000 && addr < 0x3e000000 &&
+	    (!IS_ALIGNED(addr, 64) || !IS_ALIGNED(len, 64)))
+		return false;
+
 	return !upper_32_bits(addr) && !upper_32_bits(end);
 }
 
@@ -48,6 +53,10 @@ static inline bool esp32s3_gdma_cyclic_valid(dma_addr_t addr, size_t buf_len,
 {
 	if (!period_len || period_len > ESP32S3_GDMA_DESC_MAX_LEN ||
 	    buf_len % period_len)
+		return false;
+
+	if (addr >= 0x3c000000 && addr < 0x3e000000 &&
+	    !IS_ALIGNED(period_len, 64))
 		return false;
 
 	return esp32s3_gdma_data_addr_valid(addr, buf_len) &&

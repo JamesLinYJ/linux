@@ -7,6 +7,8 @@
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/io.h>
+#include <linux/iopoll.h>
+#include <linux/property.h>
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
@@ -30,6 +32,10 @@
 #define ESP32S3_I2C_SCL_STOP_SETUP	0x4c
 #define ESP32S3_I2C_FILTER_CFG		0x50
 #define ESP32S3_I2C_CLK_CONF		0x54
+#define ESP32S3_I2C_SCL_SP_CONF		0x80
+#define ESP32S3_I2C_SCL_RST_SLV_EN	BIT(0)
+#define ESP32S3_I2C_BUS_CLEAR_PULSES	9
+
 #define ESP32S3_I2C_COMMAND(n)		(0x58 + (n) * 4)
 
 #define ESP32S3_I2C_CTR_SDA_FORCE_OUT	BIT(0)
@@ -41,6 +47,7 @@
 #define ESP32S3_I2C_CTR_FSM_RST		BIT(10)
 #define ESP32S3_I2C_CTR_CONF_UPGATE	BIT(11)
 
+#define ESP32S3_I2C_SR_BUS_BUSY		BIT(4)
 #define ESP32S3_I2C_SR_RXFIFO_CNT	GENMASK(13, 8)
 
 #define ESP32S3_I2C_TO_VALUE		GENMASK(4, 0)
@@ -88,8 +95,12 @@
 struct esp32s3_i2c {
 	void __iomem *base;
 	struct clk *clk;
+	struct reset_control *reset;
+	u32 bus_frequency;
 	struct completion complete;
 	struct i2c_adapter adapter;
+	struct i2c_bus_recovery_info recovery;
+	bool multi_master;
 	int irq;
 	int result;
 };
@@ -133,12 +144,52 @@ static void esp32s3_i2c_reset_fifos(struct esp32s3_i2c *i2c)
 	writel(value, i2c->base + ESP32S3_I2C_FIFO_CONF);
 }
 
-static void esp32s3_i2c_reset_fsm(struct esp32s3_i2c *i2c)
-{
-	u32 value = readl(i2c->base + ESP32S3_I2C_CTR);
+static int esp32s3_i2c_init_hardware(struct esp32s3_i2c *i2c,
+				     u32 bus_frequency);
 
-	writel(value | ESP32S3_I2C_CTR_FSM_RST,
-	       i2c->base + ESP32S3_I2C_CTR);
+/*
+ * ESP32-S3 FSM_RST does not reset the complete controller state. Restore the
+ * wire, then use the peripheral reset and reapply the bus configuration.
+ * Hardware limitation: ESP-IDF v5.5.3 esp32s3 soc_caps.h and i2c_master.c.
+ */
+static int esp32s3_i2c_restore(struct esp32s3_i2c *i2c, bool clear_bus)
+{
+	u32 value;
+	int ret, clear_ret = 0;
+
+	writel(0, i2c->base + ESP32S3_I2C_INT_ENA);
+	synchronize_irq(i2c->irq);
+	if (clear_bus) {
+		writel((ESP32S3_I2C_BUS_CLEAR_PULSES << 1) | ESP32S3_I2C_SCL_RST_SLV_EN,
+		       i2c->base + ESP32S3_I2C_SCL_SP_CONF);
+		clear_ret = readl_poll_timeout(i2c->base + ESP32S3_I2C_SCL_SP_CONF,
+					       value,
+					       !(value & ESP32S3_I2C_SCL_RST_SLV_EN),
+					       10, 10000);
+		/* Stop the recovery machine even if the wire did not become idle. */
+		writel(0, i2c->base + ESP32S3_I2C_SCL_SP_CONF);
+	}
+	ret = reset_control_reset(i2c->reset);
+	if (ret)
+		return ret;
+	ret = esp32s3_i2c_init_hardware(i2c, i2c->bus_frequency);
+	return ret ? ret : clear_ret;
+}
+
+static int esp32s3_i2c_recover_bus(struct i2c_adapter *adapter)
+{
+	struct esp32s3_i2c *i2c = i2c_get_adapdata(adapter);
+
+	return esp32s3_i2c_restore(i2c, true);
+}
+
+static void esp32s3_i2c_recover_error(struct esp32s3_i2c *i2c)
+{
+	int ret = esp32s3_i2c_restore(i2c, !i2c->multi_master);
+
+	if (ret)
+		dev_warn_ratelimited(i2c->adapter.dev.parent,
+				     "bus recovery failed: %d\n", ret);
 }
 
 static irqreturn_t esp32s3_i2c_irq(int irq, void *data)
@@ -199,12 +250,12 @@ static int esp32s3_i2c_execute(struct esp32s3_i2c *i2c,
 	if (!timeout) {
 		writel(0, i2c->base + ESP32S3_I2C_INT_ENA);
 		synchronize_irq(i2c->irq);
-		esp32s3_i2c_reset_fsm(i2c);
+		esp32s3_i2c_recover_error(i2c);
 		return -ETIMEDOUT;
 	}
 
 	if (i2c->result)
-		esp32s3_i2c_reset_fsm(i2c);
+		esp32s3_i2c_recover_error(i2c);
 
 	return i2c->result;
 }
@@ -408,8 +459,9 @@ static int esp32s3_i2c_init_hardware(struct esp32s3_i2c *i2c,
 	value = ESP32S3_I2C_CTR_SDA_FORCE_OUT |
 		ESP32S3_I2C_CTR_SCL_FORCE_OUT |
 		ESP32S3_I2C_CTR_MS_MODE |
-		ESP32S3_I2C_CTR_CLK_EN |
-		ESP32S3_I2C_CTR_ARBITRATION_EN;
+		ESP32S3_I2C_CTR_CLK_EN;
+	if (i2c->multi_master)
+		value |= ESP32S3_I2C_CTR_ARBITRATION_EN;
 	writel(value | ESP32S3_I2C_CTR_CONF_UPGATE,
 	       i2c->base + ESP32S3_I2C_CTR);
 	esp32s3_i2c_reset_fifos(i2c);
@@ -441,13 +493,16 @@ static int esp32s3_i2c_probe(struct platform_device *pdev)
 	if (IS_ERR(reset))
 		return dev_err_probe(dev, PTR_ERR(reset),
 				     "failed to get reset\n");
+	i2c->reset = reset;
 	ret = reset_control_reset(reset);
 	if (ret)
 		return dev_err_probe(dev, ret, "failed to reset controller\n");
 
+	i2c->multi_master = device_property_read_bool(dev, "multi-master");
 	memset(&timings, 0, sizeof(timings));
 	i2c_parse_fw_timings(dev, &timings, true);
-	ret = esp32s3_i2c_init_hardware(i2c, timings.bus_freq_hz);
+	i2c->bus_frequency = timings.bus_freq_hz;
+	ret = esp32s3_i2c_init_hardware(i2c, i2c->bus_frequency);
 	if (ret)
 		return dev_err_probe(dev, ret, "invalid bus timing\n");
 
@@ -465,6 +520,10 @@ static int esp32s3_i2c_probe(struct platform_device *pdev)
 	i2c->adapter.dev.parent = dev;
 	i2c->adapter.dev.of_node = dev->of_node;
 	i2c->adapter.timeout = HZ;
+	i2c->adapter.retries = i2c->multi_master ? 3 : 0;
+	i2c->recovery.recover_bus = esp32s3_i2c_recover_bus;
+	if (!i2c->multi_master)
+		i2c->adapter.bus_recovery_info = &i2c->recovery;
 	strscpy(i2c->adapter.name, "ESP32-S3 I2C adapter",
 		sizeof(i2c->adapter.name));
 	i2c_set_adapdata(&i2c->adapter, i2c);

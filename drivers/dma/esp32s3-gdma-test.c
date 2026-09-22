@@ -8,7 +8,9 @@ static void esp32s3_gdma_data_address_test(struct kunit *test)
 {
 	bool valid;
 
-	KUNIT_EXPECT_TRUE(test, esp32s3_gdma_data_addr_valid(0x3c000000, 4));
+	KUNIT_EXPECT_TRUE(test, esp32s3_gdma_data_addr_valid(0x3c000000, 64));
+	KUNIT_EXPECT_FALSE(test, esp32s3_gdma_data_addr_valid(0x3c000000, 4));
+	KUNIT_EXPECT_FALSE(test, esp32s3_gdma_data_addr_valid(0x3c000004, 64));
 	KUNIT_EXPECT_TRUE(test, esp32s3_gdma_data_addr_valid(0xfffffffc, 4));
 	KUNIT_EXPECT_FALSE(test, esp32s3_gdma_data_addr_valid(0x3c000001, 4));
 	KUNIT_EXPECT_FALSE(test, esp32s3_gdma_data_addr_valid(0x3c000000, 2));
@@ -60,7 +62,7 @@ static void esp32s3_gdma_descriptor_flags_test(struct kunit *test)
 static void esp32s3_gdma_cyclic_validation_test(struct kunit *test)
 {
 	KUNIT_EXPECT_TRUE(test,
-			  esp32s3_gdma_cyclic_valid(0x3c000000, 16368, 4092));
+			  esp32s3_gdma_cyclic_valid(0x3c000000, 16128, 4032));
 	KUNIT_EXPECT_FALSE(test,
 			   esp32s3_gdma_cyclic_valid(0x3c000000, 16384, 0));
 	KUNIT_EXPECT_FALSE(test,

@@ -5,6 +5,7 @@
 #include <linux/clk.h>
 #include <linux/dma-mapping.h>
 #include <linux/dmaengine.h>
+#include <linux/dmapool.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/of_dma.h>
@@ -35,6 +36,9 @@
 #define ESP32S3_GDMA_CONF0_RST		BIT(0)
 #define ESP32S3_GDMA_TX_AUTO_WRBACK	BIT(2)
 #define ESP32S3_GDMA_TX_EOF_MODE		BIT(3)
+#define ESP32S3_GDMA_TX_BURST		(BIT(4) | BIT(5))
+#define ESP32S3_GDMA_RX_BURST		(BIT(2) | BIT(3))
+#define ESP32S3_GDMA_EXT_BLOCK_64	(2 << 13)
 #define ESP32S3_GDMA_CONF1_CHECK_OWNER	BIT(12)
 #define ESP32S3_GDMA_MISC_CLK_EN		BIT(4)
 #define ESP32S3_GDMA_PERI_SEL_MASK	GENMASK(5, 0)
@@ -64,12 +68,17 @@ static_assert(sizeof(struct esp32s3_gdma_hw_desc) == 12);
 
 struct esp32s3_gdma;
 
+struct esp32s3_gdma_hw_slot {
+	struct esp32s3_gdma_hw_desc *hw;
+	dma_addr_t dma;
+};
+
 struct esp32s3_gdma_desc {
 	struct virt_dma_desc vd;
 	struct esp32s3_gdma *gdma;
-	struct esp32s3_gdma_hw_desc *hw;
+	struct esp32s3_gdma_hw_slot *slots;
 	dma_addr_t hw_dma;
-	size_t hw_size;
+	unsigned int count;
 	bool cyclic;
 };
 
@@ -89,6 +98,7 @@ struct esp32s3_gdma {
 	struct device *dev;
 	void __iomem *base;
 	struct resource desc_pool;
+	struct dma_pool *hw_pool;
 	struct esp32s3_gdma_chan chans[ESP32S3_GDMA_CHANNELS];
 };
 
@@ -96,6 +106,44 @@ static inline struct esp32s3_gdma_chan *
 to_esp32s3_gdma_chan(struct dma_chan *chan)
 {
 	return container_of(chan, struct esp32s3_gdma_chan, vc.chan);
+}
+
+static void esp32s3_gdma_free_hw(struct esp32s3_gdma_desc *desc)
+{
+	unsigned int i;
+
+	for (i = 0; i < desc->count; i++)
+		if (desc->slots[i].hw)
+			dma_pool_free(desc->gdma->hw_pool, desc->slots[i].hw,
+				      desc->slots[i].dma);
+	kfree(desc->slots);
+}
+
+static int esp32s3_gdma_alloc_hw(struct esp32s3_gdma_desc *desc,
+				 unsigned int count)
+{
+	struct esp32s3_gdma *gdma = desc->gdma;
+	unsigned int i;
+
+	desc->slots = kcalloc(count, sizeof(*desc->slots), GFP_NOWAIT);
+	if (!desc->slots)
+		return -ENOMEM;
+	desc->count = count;
+	for (i = 0; i < count; i++) {
+		struct esp32s3_gdma_hw_slot *slot = &desc->slots[i];
+
+		slot->hw = dma_pool_zalloc(gdma->hw_pool, GFP_NOWAIT, &slot->dma);
+		if (!slot->hw)
+			goto error;
+		if (!esp32s3_gdma_desc_addr_valid(slot->dma, sizeof(*slot->hw),
+						  gdma->desc_pool.start, gdma->desc_pool.end))
+			goto error;
+	}
+	desc->hw_dma = desc->slots[0].dma;
+	return 0;
+error:
+	esp32s3_gdma_free_hw(desc);
+	return -ENOMEM;
 }
 
 static struct dma_async_tx_descriptor *
@@ -109,7 +157,6 @@ esp32s3_gdma_prep_dma_cyclic(struct dma_chan *dma_chan, dma_addr_t buf_addr,
 	struct esp32s3_gdma_desc *desc;
 	unsigned int periods;
 	unsigned int i;
-	size_t hw_size;
 
 	if (chan->trigger < 0 ||
 	    (chan->tx && direction != DMA_MEM_TO_DEV) ||
@@ -118,28 +165,18 @@ esp32s3_gdma_prep_dma_cyclic(struct dma_chan *dma_chan, dma_addr_t buf_addr,
 		return NULL;
 
 	periods = buf_len / period_len;
-	if (check_mul_overflow((size_t)periods, sizeof(*desc->hw), &hw_size))
-		return NULL;
 
 	desc = kzalloc_obj(*desc, GFP_NOWAIT);
 	if (!desc)
 		return NULL;
 	desc->gdma = gdma;
-	desc->hw_size = hw_size;
 	desc->cyclic = true;
-	desc->hw = dma_alloc_coherent(gdma->dev, hw_size, &desc->hw_dma,
-				      GFP_NOWAIT);
-	if (!desc->hw)
+	if (esp32s3_gdma_alloc_hw(desc, periods))
 		goto err_free_desc;
-	if (!esp32s3_gdma_desc_addr_valid(desc->hw_dma, hw_size,
-					  gdma->desc_pool.start,
-					  gdma->desc_pool.end))
-		goto err_free_hw;
 
 	for (i = 0; i < periods; i++) {
-		struct esp32s3_gdma_hw_desc *hw = &desc->hw[i];
-		dma_addr_t next = desc->hw_dma +
-			((i + 1) % periods) * sizeof(*hw);
+		struct esp32s3_gdma_hw_desc *hw = desc->slots[i].hw;
+		dma_addr_t next = desc->slots[(i + 1) % periods].dma;
 		u32 desc_flags;
 
 		/* One descriptor is one ALSA period and therefore one EOF. */
@@ -151,8 +188,6 @@ esp32s3_gdma_prep_dma_cyclic(struct dma_chan *dma_chan, dma_addr_t buf_addr,
 
 	return vchan_tx_prep(&chan->vc, &desc->vd, flags);
 
-err_free_hw:
-	dma_free_coherent(gdma->dev, hw_size, desc->hw, desc->hw_dma);
 err_free_desc:
 	kfree(desc);
 	return NULL;
@@ -193,8 +228,7 @@ static void esp32s3_gdma_desc_free(struct virt_dma_desc *vd)
 {
 	struct esp32s3_gdma_desc *desc = to_esp32s3_gdma_desc(vd);
 
-	dma_free_coherent(desc->gdma->dev, desc->hw_size, desc->hw,
-			  desc->hw_dma);
+	esp32s3_gdma_free_hw(desc);
 	kfree(desc);
 }
 
@@ -211,7 +245,6 @@ esp32s3_gdma_prep_slave_sg(struct dma_chan *dma_chan,
 	unsigned int count = 0;
 	unsigned int index = 0;
 	unsigned int i;
-	size_t hw_size;
 
 	if (!sgl || !sg_len || chan->trigger < 0)
 		return NULL;
@@ -231,29 +264,20 @@ esp32s3_gdma_prep_slave_sg(struct dma_chan *dma_chan,
 			return NULL;
 	}
 
-	if (check_mul_overflow((size_t)count, sizeof(*desc->hw), &hw_size))
-		return NULL;
 
 	desc = kzalloc_obj(*desc, GFP_NOWAIT);
 	if (!desc)
 		return NULL;
 	desc->gdma = gdma;
-	desc->hw_size = hw_size;
-	desc->hw = dma_alloc_coherent(gdma->dev, hw_size,
-				      &desc->hw_dma, GFP_NOWAIT);
-	if (!desc->hw)
+	if (esp32s3_gdma_alloc_hw(desc, count))
 		goto err_free_desc;
-	if (!esp32s3_gdma_desc_addr_valid(desc->hw_dma, hw_size,
-					  gdma->desc_pool.start,
-					  gdma->desc_pool.end))
-		goto err_free_hw;
 
 	for_each_sg(sgl, sg, sg_len, i) {
 		dma_addr_t address = sg_dma_address(sg);
 		size_t remaining = sg_dma_len(sg);
 
 		while (remaining) {
-			struct esp32s3_gdma_hw_desc *hw = &desc->hw[index];
+			struct esp32s3_gdma_hw_desc *hw = desc->slots[index].hw;
 			size_t length = min_t(size_t, remaining,
 					      ESP32S3_GDMA_DESC_MAX_LEN);
 			u32 value = esp32s3_gdma_desc_flags(length, chan->tx,
@@ -261,8 +285,7 @@ esp32s3_gdma_prep_slave_sg(struct dma_chan *dma_chan,
 			hw->flags = cpu_to_le32(value);
 			hw->buffer = cpu_to_le32(lower_32_bits(address));
 			hw->next = cpu_to_le32(index == count - 1 ? 0 :
-				lower_32_bits(desc->hw_dma +
-					      (index + 1) * sizeof(*hw)));
+				lower_32_bits(desc->slots[index + 1].dma));
 			address += length;
 			remaining -= length;
 			index++;
@@ -271,8 +294,6 @@ esp32s3_gdma_prep_slave_sg(struct dma_chan *dma_chan,
 
 	return vchan_tx_prep(&chan->vc, &desc->vd, flags);
 
-err_free_hw:
-	dma_free_coherent(gdma->dev, hw_size, desc->hw, desc->hw_dma);
 err_free_desc:
 	kfree(desc);
 	return NULL;
@@ -294,11 +315,13 @@ static void esp32s3_gdma_start(struct esp32s3_gdma_chan *chan)
 	base = esp32s3_gdma_chan_base(chan);
 
 	writel(ESP32S3_GDMA_CONF0_RST, base + ESP32S3_GDMA_CONF0);
-	conf0 = chan->tx ? ESP32S3_GDMA_TX_EOF_MODE : 0;
+	conf0 = chan->tx ? ESP32S3_GDMA_TX_EOF_MODE | ESP32S3_GDMA_TX_BURST :
+		ESP32S3_GDMA_RX_BURST;
 	if (chan->tx && !chan->active->cyclic)
 		conf0 |= ESP32S3_GDMA_TX_AUTO_WRBACK;
 	writel(conf0, base + ESP32S3_GDMA_CONF0);
-	writel(chan->active->cyclic ? 0 : ESP32S3_GDMA_CONF1_CHECK_OWNER,
+	writel(ESP32S3_GDMA_EXT_BLOCK_64 |
+	       (chan->active->cyclic ? 0 : ESP32S3_GDMA_CONF1_CHECK_OWNER),
 	       base + ESP32S3_GDMA_CONF1);
 	writel(FIELD_PREP(ESP32S3_GDMA_PERI_SEL_MASK, chan->trigger),
 	       base + ESP32S3_GDMA_PERI_SEL);
@@ -316,24 +339,32 @@ static irqreturn_t esp32s3_gdma_irq(int irq, void *data)
 {
 	struct esp32s3_gdma_chan *chan = data;
 	void __iomem *base = esp32s3_gdma_chan_base(chan);
-	u32 status = readl(base + ESP32S3_GDMA_INT_ST);
+	u32 status;
 	u32 errors = chan->tx ? ESP32S3_GDMA_TX_ERRORS :
 		ESP32S3_GDMA_RX_ERRORS;
 	u32 done = chan->tx ? ESP32S3_GDMA_TX_DONE : ESP32S3_GDMA_RX_DONE;
 	unsigned long flags;
 
-	if (!(status & esp32s3_gdma_irq_mask(chan)))
-		return IRQ_NONE;
-
-	writel(status, base + ESP32S3_GDMA_INT_CLR);
 	spin_lock_irqsave(&chan->vc.lock, flags);
+	status = readl(base + ESP32S3_GDMA_INT_ST);
+	if (!(status & esp32s3_gdma_irq_mask(chan))) {
+		spin_unlock_irqrestore(&chan->vc.lock, flags);
+		return IRQ_NONE;
+	}
+	writel(status, base + ESP32S3_GDMA_INT_CLR);
 	if (!chan->active) {
 		writel(0, base + ESP32S3_GDMA_INT_ENA);
 		spin_unlock_irqrestore(&chan->vc.lock, flags);
 		return IRQ_HANDLED;
 	}
 
+	/* A linear transfer completes only after the whole outlink drains. */
+	if (chan->tx)
+		done = chan->active->cyclic ? BIT(1) : BIT(3);
+
 	if (status & errors) {
+		dev_warn_ratelimited(chan->gdma->dev, "channel %u %s error %08x\n",
+				     chan->pair, chan->tx ? "tx" : "rx", status);
 		chan->active->vd.tx_result.result = chan->tx ?
 			DMA_TRANS_READ_FAILED : DMA_TRANS_WRITE_FAILED;
 		chan->error_cookie = chan->active->vd.tx.cookie;
@@ -529,6 +560,20 @@ static int esp32s3_gdma_probe(struct platform_device *pdev)
 				       dev);
 	if (ret)
 		return ret;
+
+	gdma->hw_pool = dmam_pool_create("esp32s3-descriptors", dev,
+					 sizeof(struct esp32s3_gdma_hw_desc), 4, 0);
+	if (!gdma->hw_pool)
+		return -ENOMEM;
+	/* Reserve backing SRAM in sleepable probe context for atomic prep. */
+	{
+		dma_addr_t address;
+		void *anchor = dma_pool_alloc(gdma->hw_pool, GFP_KERNEL, &address);
+
+		if (!anchor)
+			return -ENOMEM;
+		dma_pool_free(gdma->hw_pool, anchor, address);
+	}
 
 	clk = devm_clk_get_enabled(dev, NULL);
 	if (IS_ERR(clk))

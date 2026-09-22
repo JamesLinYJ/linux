@@ -145,6 +145,8 @@
 			compatible = "axs,axs15231b";
 			reg = <0>;
 			spi-max-frequency = <40000000>;
+			spi-tx-bus-width = <4>;
+			rotation = <270>;
 			spi-cpha;
 			spi-cpol;
 			reset-gpios = <&tca9554 5 GPIO_ACTIVE_LOW>;
@@ -222,8 +224,7 @@
 		clocks = <&syscon ESP32S3_CLK_GDMA>;
 		resets = <&syscon ESP32S3_RST_GDMA>;
 		interrupt-parent = <&intc>;
-		interrupts = <65 IRQ_TYPE_LEVEL_HIGH>,
-			     <66 IRQ_TYPE_LEVEL_HIGH>,
+		interrupts = <66 IRQ_TYPE_LEVEL_HIGH>,
 			     <67 IRQ_TYPE_LEVEL_HIGH>,
 			     <68 IRQ_TYPE_LEVEL_HIGH>,
 			     <69 IRQ_TYPE_LEVEL_HIGH>,
@@ -231,7 +232,8 @@
 			     <71 IRQ_TYPE_LEVEL_HIGH>,
 			     <72 IRQ_TYPE_LEVEL_HIGH>,
 			     <73 IRQ_TYPE_LEVEL_HIGH>,
-			     <74 IRQ_TYPE_LEVEL_HIGH>;
+			     <74 IRQ_TYPE_LEVEL_HIGH>,
+			     <75 IRQ_TYPE_LEVEL_HIGH>;
 		interrupt-names = "rx0", "rx1", "rx2", "rx3", "rx4",
 				  "tx0", "tx1", "tx2", "tx3", "tx4";
 		memory-region = <&gdma_pool>;
@@ -273,7 +275,7 @@
 		enable-gpios = <&tca9554 1 GPIO_ACTIVE_HIGH>;
 		brightness-levels = <0 255>;
 		num-interpolated-steps = <255>;
-		default-brightness-level = <0>;
+		default-brightness-level = <255>;
 	};
 
 	audio {
@@ -316,9 +318,9 @@
 			quartz-load-femtofarads = <12500>;
 		};
 
-		imu@6a {
+		imu@6b {
 			compatible = "qst,qmi8658c";
-			reg = <0x6a>;
+			reg = <0x6b>;
 			interrupt-parent = <&tca9554>;
 			interrupts = <2 IRQ_TYPE_EDGE_FALLING>,
 				     <3 IRQ_TYPE_EDGE_FALLING>;

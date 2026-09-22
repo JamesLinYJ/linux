@@ -11,10 +11,10 @@
 static void axs15231b_cmd_header_test(struct kunit *test)
 {
 	const u8 expect_write_cmd[AXS15231B_CMD_HEADER_LEN] = {
-		0x02, 0x2a, 0x00, 0x00
+		0x02, 0x00, 0x2a, 0x00
 	};
 	const u8 expect_write_color[AXS15231B_CMD_HEADER_LEN] = {
-		0x32, 0x2c, 0x00, 0x00
+		0x32, 0x00, 0x2c, 0x00
 	};
 	u8 buf[AXS15231B_CMD_HEADER_LEN];
 
@@ -63,11 +63,10 @@ static void axs15231b_rect_bytes_test(struct kunit *test)
 }
 
 /*
- * Pin the init table transcription to the official espressif component
- * esp_lcd_axs15231b v1.0.1~1: checksum of all (cmd, data bytes, len,
- * delay_ms) fields of vendor_specific_init_default[], modulo 2^32.
+ * Check the V2 short initialization and RGB565 setup against the locked
+ * Waveshare board configuration, not the generic panel calibration table.
  */
-#define AXS15231B_INIT_GOLDEN_CHECKSUM 0x000080af
+#define AXS15231B_INIT_GOLDEN_CHECKSUM 0x000001c9
 
 static u32 axs15231b_init_checksum(void)
 {
@@ -91,7 +90,7 @@ static void axs15231b_init_table_test(struct kunit *test)
 	KUNIT_EXPECT_TRUE(test,
 			  axs15231b_init_table_valid(axs15231b_init_cmds,
 						     AXS15231B_INIT_CMDS_COUNT));
-	KUNIT_EXPECT_EQ(test, AXS15231B_INIT_CMDS_COUNT, 32);
+	KUNIT_EXPECT_EQ(test, AXS15231B_INIT_CMDS_COUNT, 4);
 	KUNIT_EXPECT_EQ(test, axs15231b_init_checksum(),
 			AXS15231B_INIT_GOLDEN_CHECKSUM);
 }

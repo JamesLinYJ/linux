@@ -210,17 +210,26 @@ static int esp32s3_usb_serial_startup(struct uart_port *port)
 	unsigned long flags;
 	int ret;
 
+	/*
+	 * ROM/loader may leave RX enabled and a packet pending. request_irq()
+	 * unmasks the matrix source, so quiesce hardware before installing the
+	 * handler. Preserve pending RX data for delivery after startup.
+	 */
+	uart_port_lock_irqsave(port, &flags);
+	uart->irq_mask = 0;
+	uart->need_zlp = false;
+	writel(0, port->membase + ESP32S3_USB_SERIAL_INT_ENA);
+	readl(port->membase + ESP32S3_USB_SERIAL_INT_ENA);
+	writel(ESP32S3_USB_SERIAL_INT_TX,
+	       port->membase + ESP32S3_USB_SERIAL_INT_CLR);
+	uart_port_unlock_irqrestore(port, flags);
+
 	ret = request_irq(port->irq, esp32s3_usb_serial_interrupt, 0,
 			  dev_name(port->dev), uart);
 	if (ret)
 		return ret;
 
 	uart_port_lock_irqsave(port, &flags);
-	uart->irq_mask = 0;
-	uart->need_zlp = false;
-	writel(0, port->membase + ESP32S3_USB_SERIAL_INT_ENA);
-	writel(ESP32S3_USB_SERIAL_INT_TX,
-	       port->membase + ESP32S3_USB_SERIAL_INT_CLR);
 	esp32s3_usb_update_irq(port, true, ESP32S3_USB_SERIAL_INT_RX);
 	uart_port_unlock_irqrestore(port, flags);
 
