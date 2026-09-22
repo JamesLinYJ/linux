@@ -36,17 +36,15 @@ KBUILD_CFLAGS += -ffreestanding -D__linux__
 KBUILD_CFLAGS += -pipe -mlongcalls -mtext-section-literals
 KBUILD_CFLAGS += $(call cc-option,-mforce-no-pic,)
 KBUILD_CFLAGS += $(call cc-option,-mno-serialize-volatile,)
-KBUILD_CFLAGS += $(call cc-option,-mno-fdpic,)
+# Linker-script preprocessing must see the same ABI as C and assembly.
+KBUILD_CPPFLAGS += $(call cc-option,-mno-fdpic,)
 ifneq ($(CONFIG_KERNEL_ABI_CALL0),)
-KBUILD_CFLAGS += -mabi=call0
-KBUILD_AFLAGS += -mabi=call0
+KBUILD_CPPFLAGS += -mabi=call0
 else
-KBUILD_CFLAGS += -mabi=windowed
-KBUILD_AFLAGS += -mabi=windowed
+KBUILD_CPPFLAGS += -mabi=windowed
 endif
 
 KBUILD_AFLAGS += -mlongcalls -mtext-section-literals
-KBUILD_AFLAGS += $(call cc-option,-mno-fdpic,)
 
 KBUILD_LDFLAGS += -m elf32xtensa
 
