@@ -343,6 +343,11 @@ static const struct drm_mode_config_funcs axs15231b_mode_config_funcs = {
 	.atomic_commit = drm_atomic_helper_commit,
 };
 
+/* Prepare the panel before the first plane update of each modeset. */
+static const struct drm_mode_config_helper_funcs axs15231b_mode_config_helpers = {
+	.atomic_commit_tail = drm_atomic_helper_commit_tail_rpm,
+};
+
 static const u32 axs15231b_formats[] = {
 	DRM_FORMAT_XRGB8888,
 	DRM_FORMAT_RGB565,
@@ -401,6 +406,7 @@ static int axs15231b_probe(struct spi_device *spi)
 	if (ret)
 		return ret;
 	drm->mode_config.funcs = &axs15231b_mode_config_funcs;
+	drm->mode_config.helper_private = &axs15231b_mode_config_helpers;
 
 	mutex_init(&panel->lock);
 	INIT_DELAYED_WORK(&panel->refresh, axs15231b_refresh_work);
