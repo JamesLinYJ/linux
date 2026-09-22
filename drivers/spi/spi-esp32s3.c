@@ -611,12 +611,13 @@ static int esp32s3_spi_transfer_one(struct spi_controller *host,
 	return 0;
 }
 
-static void esp32s3_spi_set_cs(struct spi_device *spi, bool enable)
+static void esp32s3_spi_set_cs(struct spi_device *spi, bool level)
 {
 	struct esp32s3_spi *espi = spi_controller_get_devdata(spi->controller);
 	u32 misc;
 
-	if (enable)
+	/* The SPI core passes the physical CS level, not logical assertion. */
+	if (level == !!(spi->mode & SPI_CS_HIGH))
 		return;
 
 	misc = readl(espi->base + ESP32S3_SPI_MISC);
