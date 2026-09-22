@@ -15,8 +15,10 @@
  * QSPI write format (datasheet V0.5 section 4.4): the command phase is a
  * 4-byte single-line stream [opcode][0x00][command][0x00] with
  * AXS15231B_OP_WRITE_CMD for parameters and AXS15231B_OP_WRITE_COLOR for
- * pixel data, followed by the data phase which for pixels uses all four
- * lines. The official Waveshare V2 demo (ESP-IDF esp_lcd_panel_io_spi with
+ * pixel data. Opcode 0x02 parameters remain single-line; only opcode 0x32
+ * pixel data uses all four lines. ESP-IDF v5.5.3 esp_lcd_panel_io_spi.c
+ * applies quad_mode in tx_color, never in tx_param (Espressif, Apache-2.0).
+ * The official Waveshare V2 demo (ESP-IDF esp_lcd_panel_io_spi with
  * lcd_cmd_bits=32, quad_mode) produces exactly this byte order on the wire.
  */
 #ifndef _AXS15231B_H

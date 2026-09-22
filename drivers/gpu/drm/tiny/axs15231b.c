@@ -94,7 +94,8 @@ static int axs15231b_write_cmd(struct axs15231b *panel, u8 cmd,
 	xfers[0].tx_nbits = SPI_NBITS_SINGLE;
 	xfers[1].tx_buf = buf + AXS15231B_CMD_HEADER_LEN;
 	xfers[1].len = param_len;
-	xfers[1].tx_nbits = SPI_NBITS_QUAD;
+	/* Opcode 0x02 keeps parameters single-line; only 0x32 is quad. */
+	xfers[1].tx_nbits = SPI_NBITS_SINGLE;
 	return spi_sync_transfer(panel->spi, xfers, param_len ? 2 : 1);
 }
 
@@ -122,7 +123,7 @@ static int axs15231b_panel_init(struct axs15231b *panel)
 	return 0;
 }
 
-/* QSPI RAMWR streams native frame memory; RASET is not supported here. */
+/* Stream a full native frame from RAMWR's origin, as in the vendor driver. */
 static int axs15231b_upload_frame(struct axs15231b *panel)
 {
 	const u8 columns[] = { 0, 0, (AXS15231B_WIDTH - 1) >> 8,
